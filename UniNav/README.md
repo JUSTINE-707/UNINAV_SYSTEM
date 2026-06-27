@@ -1,3 +1,6 @@
+# Supabase project password
+UNINAV_2026
+
 # Supabase
 npx expo install @supabase/supabase-js
 npx expo install @react-native-async-storage/async-storage
