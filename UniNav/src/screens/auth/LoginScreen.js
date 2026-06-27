@@ -12,6 +12,7 @@ import {
 } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { COLORS, FONTS, SIZES } from '../../constants/theme'
+import { Feather } from '@expo/vector-icons'
 
 const LoginScreen = ({ navigation }) => {
   const [inputEmail, setInputEmail] = useState('')
@@ -90,9 +91,11 @@ const LoginScreen = ({ navigation }) => {
                 style={styles.showPasswordButton}
                 onPress={() => setShowPassword(prev => !prev)}
               >
-                <Text style={styles.showPasswordText}>
-                  {showPassword ? 'Hide' : 'Show'}
-                </Text>
+                <Feather
+                  name={showPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color="#9E9E9E"
+                />
               </TouchableOpacity>
             </View>
           </View>

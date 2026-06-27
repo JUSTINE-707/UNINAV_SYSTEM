@@ -16,6 +16,7 @@ const RegisterScreen = ({ navigation }) => {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 60}
     >
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.scrollContainer}>
