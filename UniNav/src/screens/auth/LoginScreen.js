@@ -9,23 +9,90 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator
 } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { COLORS, FONTS, SIZES } from '../../constants/theme'
 import { Feather } from '@expo/vector-icons'
+import { supabase } from '../../services/supabase'
 
 const LoginScreen = ({ navigation }) => {
-  const [inputEmail, setInputEmail] = useState('')
+  const [inputIdentifier, setInputIdentifier] = useState('')
   const [inputPassword, setInputPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
 
-  const handleLogin = () => {
-    if (inputEmail === 'professor@bsu.edu.ph' && inputPassword === 'professor123') {
-      navigation.navigate('ProfessorDashboard')
-    } else if (inputEmail === 'student@bsu.edu.ph' && inputPassword === 'student123') {
-      navigation.navigate('StudentDashboard')
-    } else {
-      alert('Invalid email or password. Please try again.')
+  const handleLogin = async () => {
+    setErrorMsg('');
+
+    if (!inputIdentifier || !inputPassword) {
+      setErrorMsg('Please enter your email/SR code and password.');
+      return;
+    }
+
+    setLoading(true);
+
+    let loginEmail = inputIdentifier;
+
+    // If it doesn't look like an email, treat it as an SR code and look up the real email
+    if (!inputIdentifier.includes('@')) {
+      const { data: student, error: lookupError } = await supabase
+        .from('students')
+        .select('id, users(email)')
+        .eq('sr_code', inputIdentifier)
+        .single();
+
+      if (lookupError || !student) {
+        setLoading(false);
+        setErrorMsg('No account found with that SR code.');
+        return;
+      }
+
+      loginEmail = student.users.email;
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: loginEmail,
+      password: inputPassword,
+    });
+
+    if (authError) {
+      setLoading(false)
+      setErrorMsg(authError.message)
+      return
+    }
+
+    // Step 2: look up their role from the users table
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', authData.user.id)
+      .single()
+
+    setLoading(false)
+
+    if (profileError || !profile) {
+      setErrorMsg('Could not load your profile. Please try again.')
+      return
+    }
+
+    // Step 3: route based on role
+    switch (profile.role) {
+      case 'student':
+        navigation.navigate('StudentDashboard')
+        break
+      case 'professor':
+        navigation.navigate('ProfessorDashboard')
+        break
+      case 'chairperson':
+        navigation.navigate('ChairpersonDashboard') // web/desktop in your case, but keep for completeness
+        break
+      case 'admin':
+        navigation.navigate('AdminDashboard')
+        break
+      default:
+        setErrorMsg('Unknown account role.')
     }
   }
 
@@ -61,17 +128,19 @@ const LoginScreen = ({ navigation }) => {
         {/* Form */}
         <View style={styles.form}>
 
+          {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
+
           {/* Email */}
           <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Email</Text>
+            <Text style={styles.inputLabel}>Email/SR-Code</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter your email"
+              placeholder="Email or SR Code"
               placeholderTextColor={COLORS.gray}
-              keyboardType="email-address"
+              keyboardType="default"         
               autoCapitalize="none"
-              value={inputEmail}
-              onChangeText={setInputEmail}
+              value={inputIdentifier}         
+              onChangeText={setInputIdentifier} 
             />
           </View>
 
@@ -101,8 +170,16 @@ const LoginScreen = ({ navigation }) => {
           </View>
 
           {/* Login Button */}
-          <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-            <Text style={styles.loginButtonText}>LOGIN</Text>
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color={COLORS.white} />
+            ) : (
+              <Text style={styles.loginButtonText}>LOGIN</Text>
+            )}
           </TouchableOpacity>
 
           {/* Register Link */}
@@ -248,6 +325,12 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontSize: FONTS.medium,
     fontWeight: 'bold',
+  },
+  errorText: {
+    color: '#D32F2F',
+    fontSize: FONTS.medium,
+    marginBottom: 12,
+    textAlign: 'center',
   },
 })
 
