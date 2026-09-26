@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../services/supabase'
 
 const COLORS = {
@@ -19,7 +20,194 @@ const COLORS = {
   background: '#F7F5F2',
   error: '#B00020',
   success: '#2E8B22',
+  warning: '#B26A00',
 }
+
+// ============================================================
+// ERROR HANDLING
+// ============================================================
+//
+// Note: We use `isRegisterError` flag instead of `instanceof`
+// because React Native's Hermes engine breaks `instanceof` for
+// custom classes that extend Error.
+// ============================================================
+
+class RegisterError extends Error {
+  constructor(code, title, message, hint = '', severity = 'error') {
+    super(message)
+    this.name = 'RegisterError'
+    this.isRegisterError = true   // ← duck-typing flag (instanceof-safe)
+    this.code = code
+    this.title = title
+    this.hint = hint
+    this.severity = severity
+  }
+}
+
+const toRegisterFailure = (err) => {
+  // 1. Our own typed error — check the FLAG, not instanceof
+  if (err?.isRegisterError === true) {
+    return {
+      code: err.code,
+      title: err.title,
+      message: err.message,
+      hint: err.hint,
+      severity: err.severity,
+    }
+  }
+
+  const msg = (err?.message || '').toString()
+  const pgCode = err?.code
+  const errName = err?.name || ''
+
+  // ---- Network errors ----
+  if (
+    /network request failed|failed to fetch|timed? ?out|timeout/i.test(msg) ||
+    errName === 'TypeError'
+  ) {
+    return {
+      code: 'NETWORK',
+      title: 'No connection',
+      message: "We couldn't reach the server.",
+      hint: 'Check your internet connection and try again.',
+      severity: 'warning',
+    }
+  }
+
+  // ---- Auth errors (Supabase) ----
+  if (/user already registered/i.test(msg)) {
+    return {
+      code: 'ALREADY_REGISTERED',
+      title: 'Email already registered',
+      message: 'This email already has an account.',
+      hint: 'Try logging in instead, or use a different email.',
+      severity: 'warning',
+    }
+  }
+
+  if (/password.*(least|short|weak)/i.test(msg)) {
+    return {
+      code: 'WEAK_PASSWORD',
+      title: 'Password too weak',
+      message: 'Please use a stronger password.',
+      hint: 'Use at least 6 characters, mixing letters and numbers.',
+      severity: 'warning',
+    }
+  }
+
+  if (/invalid email|email.*invalid/i.test(msg)) {
+    return {
+      code: 'INVALID_EMAIL',
+      title: 'Invalid email',
+      message: 'Please double-check your email address.',
+      hint: 'Make sure it follows the format name@domain.com.',
+      severity: 'warning',
+    }
+  }
+
+  // ---- Postgres errors ----
+  if (pgCode === '23505') {
+    if (/users.*email/i.test(msg) || /users_email_key/i.test(msg)) {
+      return {
+        code: 'DUPLICATE_EMAIL',
+        title: 'Email already in use',
+        message: 'This email is already registered in our system.',
+        hint: 'Try logging in, or use a different email address.',
+        severity: 'warning',
+      }
+    }
+    if (/students.*sr_code/i.test(msg) || /sr_code/i.test(msg)) {
+      return {
+        code: 'DUPLICATE_SR',
+        title: 'SR Code already used',
+        message: 'This SR Code is already linked to an account.',
+        hint: 'If this is yours, try logging in. Otherwise, contact the admin.',
+        severity: 'warning',
+      }
+    }
+    return {
+      code: 'DUPLICATE',
+      title: 'Already registered',
+      message: 'Some of your details are already in use.',
+      hint: 'Try logging in or contact the admin for help.',
+      severity: 'warning',
+    }
+  }
+
+  if (pgCode === '23503') {
+    return {
+      code: 'FK_VIOLATION',
+      title: 'Account setup incomplete',
+      message: 'Your account was created but something went wrong linking it.',
+      hint: 'Please contact the admin to fix your account.',
+      severity: 'error',
+    }
+  }
+
+  if (pgCode === '23502') {
+    return {
+      code: 'MISSING_FIELD',
+      title: 'Missing information',
+      message: 'Some required information is missing.',
+      hint: 'Try filling out all the fields again.',
+      severity: 'warning',
+    }
+  }
+
+  if (pgCode === '42501') {
+    return {
+      code: 'PERMISSION',
+      title: 'Access denied',
+      message: "Your account isn't allowed to do that yet.",
+      hint: 'Please contact your administrator.',
+      severity: 'error',
+    }
+  }
+
+  if (pgCode === '42P01' || pgCode === 'PGRST205') {
+    return {
+      code: 'NOT_SET_UP',
+      title: 'Feature not ready',
+      message: 'Registration is not fully set up on the server yet.',
+      hint: 'Please contact your administrator.',
+      severity: 'error',
+    }
+  }
+
+  if (pgCode === 'PGRST202' || /could not find the function/i.test(msg)) {
+    return {
+      code: 'RPC_MISSING',
+      title: 'Server misconfigured',
+      message: 'A required server function is missing.',
+      hint: 'Please contact your administrator to run the setup scripts.',
+      severity: 'error',
+    }
+  }
+
+  // ---- Postgres raise from RPC (with details/hint) ----
+  if (err?.details || err?.hint) {
+    return {
+      code: 'DATABASE',
+      title: 'Registration failed',
+      message: msg || 'Something went wrong.',
+      hint: err?.hint || 'Please try again or contact the admin.',
+      severity: 'error',
+    }
+  }
+
+  // ---- Unknown fallback ----
+  return {
+    code: 'UNKNOWN',
+    title: 'Registration failed',
+    message: msg || 'Something went wrong during registration.',
+    hint: 'Please try again. If it keeps happening, contact the admin.',
+    severity: 'error',
+  }
+}
+
+// ============================================================
+// SCREEN
+// ============================================================
 
 const RegisterScreen = ({ navigation }) => {
   const [fullName, setFullName] = useState('')
@@ -29,42 +217,75 @@ const RegisterScreen = ({ navigation }) => {
   const [srCode, setSrCode] = useState('')
   const [role, setRole] = useState('student')
 
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+
   const [loading, setLoading] = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
+  const [failure, setFailure] = useState(null)
   const [notice, setNotice] = useState(null)
 
-  const handleRegister = async () => {
-    setErrorMsg('')
-    setNotice(null)
+  // ---- helpers ----
+  const clearFeedback = () => {
+    if (failure) setFailure(null)
+    if (notice) setNotice(null)
+  }
 
-    // ============================================================
-    // VALIDATION
-    // ============================================================
+  const fail = (title, message, hint = '', severity = 'warning') => {
+    setFailure({ code: 'VALIDATION', title, message, hint, severity })
+  }
 
-    if (!fullName.trim() || !email.trim() || !password) {
-      setErrorMsg('Please fill in all required fields.')
-      return
+  // ============================================================
+  // VALIDATION
+  // ============================================================
+
+  const validate = () => {
+    if (!fullName.trim()) {
+      fail('Missing name', 'Please enter your full name.')
+      return false
     }
-
-    if (!email.includes('@')) {
-      setErrorMsg('Please enter a valid email address.')
-      return
+    if (!email.trim()) {
+      fail('Missing email', 'Please enter your email address.')
+      return false
     }
-
+    if (!email.includes('@') || !email.includes('.')) {
+      fail('Invalid email', 'Please enter a valid email address.')
+      return false
+    }
     if (role === 'student' && !srCode.trim()) {
-      setErrorMsg('Please enter your SR Code.')
-      return
+      fail('Missing SR Code', 'Please enter your SR Code.')
+      return false
     }
-
+    if (!password) {
+      fail('Missing password', 'Please enter a password.')
+      return false
+    }
     if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters.')
-      return
+      fail(
+        'Password too short',
+        'Your password must be at least 6 characters.',
+        'Try mixing letters and numbers for a stronger password.'
+      )
+      return false
     }
-
     if (password !== confirmPassword) {
-      setErrorMsg('Passwords do not match.')
-      return
+      fail(
+        'Passwords do not match',
+        'The two passwords you entered are different.',
+        'Make sure both fields have the same password.'
+      )
+      return false
     }
+    return true
+  }
+
+  // ============================================================
+  // REGISTER
+  // ============================================================
+
+  const handleRegister = async () => {
+    clearFeedback()
+
+    if (!validate()) return
 
     setLoading(true)
 
@@ -72,10 +293,7 @@ const RegisterScreen = ({ navigation }) => {
       const cleanEmail = email.trim().toLowerCase()
       let rosterEntry = null
 
-      // ============================================================
-      // STEP 1: Verify against the appropriate roster
-      // ============================================================
-
+      // ---- Step 1: Verify against the appropriate roster ----
       if (role === 'student') {
         const { data, error: rpcError } = await supabase.rpc(
           'lookup_student_roster',
@@ -88,8 +306,12 @@ const RegisterScreen = ({ navigation }) => {
         if (rpcError) throw rpcError
 
         if (!data) {
-          throw new Error(
-            "Your email and SR Code don't match any record in the student roster. Please contact the admin to be added first."
+          throw new RegisterError(
+            'ROSTER_NOT_FOUND',
+            'Not on the student roster',
+            "We couldn't find a matching record for your email and SR Code.",
+            'Contact your Program Chair or the Registrar to be added to the roster first.',
+            'warning'
           )
         }
 
@@ -97,26 +319,25 @@ const RegisterScreen = ({ navigation }) => {
       } else {
         const { data, error: rpcError } = await supabase.rpc(
           'lookup_faculty_roster',
-          {
-            email_input: cleanEmail,
-          }
+          { email_input: cleanEmail }
         )
 
         if (rpcError) throw rpcError
 
         if (!data) {
-          throw new Error(
-            "Your email isn't in the faculty roster. Please contact the admin to be added first."
+          throw new RegisterError(
+            'ROSTER_NOT_FOUND',
+            'Not on the faculty roster',
+            "We couldn't find your email in the faculty roster.",
+            'Contact the Admin to be added to the faculty roster first.',
+            'warning'
           )
         }
 
         rosterEntry = data
       }
 
-      // ============================================================
-      // STEP 1.5: Use the roster's canonical name for the users row
-      // ============================================================
-
+      // ---- Step 2: Use roster's canonical name ----
       const rosterName = (rosterEntry.full_name || '').trim()
       const canonicalName = rosterName || fullName.trim().toUpperCase()
 
@@ -124,10 +345,7 @@ const RegisterScreen = ({ navigation }) => {
         setFullName(rosterName)
       }
 
-      // ============================================================
-      // STEP 2: Create the auth account
-      // ============================================================
-
+      // ---- Step 3: Create auth account ----
       const { data: authData, error: authError } =
         await supabase.auth.signUp({
           email: cleanEmail,
@@ -137,15 +355,18 @@ const RegisterScreen = ({ navigation }) => {
       if (authError) throw authError
 
       if (!authData.user) {
-        throw new Error('Registration failed. No user was created.')
+        throw new RegisterError(
+          'AUTH_FAILED',
+          'Could not create account',
+          'Supabase did not return a user.',
+          'Please try again. If it keeps happening, contact the admin.',
+          'error'
+        )
       }
 
       const userId = authData.user.id
 
-      // ============================================================
-      // STEP 3: Create the public.users row (canonical name)
-      // ============================================================
-
+      // ---- Step 4: Create public.users row ----
       const { error: userError } = await supabase
         .from('users')
         .insert({
@@ -157,10 +378,7 @@ const RegisterScreen = ({ navigation }) => {
 
       if (userError) throw userError
 
-      // ============================================================
-      // STEP 4: Create the role-specific row + link roster
-      // ============================================================
-
+      // ---- Step 5: Role-specific row + roster link ----
       if (role === 'student') {
         const { error: studentError } = await supabase
           .from('students')
@@ -172,10 +390,6 @@ const RegisterScreen = ({ navigation }) => {
 
         if (studentError) throw studentError
 
-        // Link the students_roster row via SECURITY DEFINER RPC.
-        // Direct UPDATE would be blocked by RLS — students have no
-        // UPDATE policy on students_roster. The RPC runs elevated
-        // and matches the row by sr_code (already verified in Step 1).
         const { error: linkError } = await supabase.rpc(
           'claim_student_roster',
           {
@@ -198,8 +412,6 @@ const RegisterScreen = ({ navigation }) => {
 
         if (facultyError) throw facultyError
 
-        // Link the faculty_roster row via SECURITY DEFINER RPC.
-        // Matches by email (unique in faculty_roster).
         const { error: linkError } = await supabase.rpc(
           'claim_faculty_roster',
           {
@@ -211,10 +423,7 @@ const RegisterScreen = ({ navigation }) => {
         if (linkError) throw linkError
       }
 
-      // ============================================================
-      // DONE
-      // ============================================================
-
+      // ---- Success ----
       setNotice({
         type: 'success',
         message: 'Account created successfully. Redirecting to login…',
@@ -229,14 +438,34 @@ const RegisterScreen = ({ navigation }) => {
         navigation.navigate('Login')
       }, 1500)
     } catch (error) {
-      console.error('Registration error:', error)
-      setErrorMsg(
-        error?.message || 'Something went wrong during registration.'
-      )
+      // Log only non-user-facing details — expected warnings go to
+      // console.log, unexpected ones to console.error
+      const isExpected =
+        error?.isRegisterError === true || error?.severity === 'warning'
+
+      if (isExpected) {
+        console.log(
+          '[Register] Expected outcome:',
+          error?.code || error?.name,
+          '-',
+          error?.message
+        )
+      } else {
+        console.error('[Register] Unexpected error:', error)
+      }
+
+      setFailure(toRegisterFailure(error))
     } finally {
       setLoading(false)
     }
   }
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+
+  const isWarning = failure?.severity === 'warning'
+  const accentColor = isWarning ? COLORS.warning : COLORS.error
 
   return (
     <ScrollView
@@ -245,31 +474,64 @@ const RegisterScreen = ({ navigation }) => {
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.formContainer}>
-
         <Text style={styles.title}>Create Account</Text>
+        <Text style={styles.subtitle}>Register your UniNav account</Text>
 
-        <Text style={styles.subtitle}>
-          Register your UniNav account
-        </Text>
-
-        {errorMsg ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{errorMsg}</Text>
-          </View>
-        ) : null}
-
-        {notice ? (
+        {/* ERROR / WARNING BOX */}
+        {failure ? (
           <View
             style={[
-              styles.noticeBox,
-              notice.type === 'success' && styles.noticeSuccess,
+              styles.alertBox,
+              isWarning ? styles.alertWarning : styles.alertError,
             ]}
           >
-            <Text style={styles.noticeText}>{notice.message}</Text>
+            <View
+              style={[
+                styles.alertIconWrap,
+                isWarning ? styles.alertIconWarn : styles.alertIconErr,
+              ]}
+            >
+              <Text style={styles.alertIconText}>
+                {isWarning ? '!' : '✕'}
+              </Text>
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.alertTitle, { color: accentColor }]}>
+                {failure.title}
+              </Text>
+              <Text style={styles.alertMessage}>{failure.message}</Text>
+              {!!failure.hint && (
+                <Text style={styles.alertHint}>{failure.hint}</Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setFailure(null)}
+              style={styles.alertClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.alertCloseText}>✕</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
-        {/* Full Name */}
+        {/* SUCCESS NOTICE */}
+        {notice ? (
+          <View style={[styles.alertBox, styles.alertSuccess]}>
+            <View style={[styles.alertIconWrap, styles.alertIconOk]}>
+              <Text style={styles.alertIconText}>✓</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.alertTitle, { color: COLORS.success }]}>
+                Success
+              </Text>
+              <Text style={styles.alertMessage}>{notice.message}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {/* FULL NAME */}
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Full Name</Text>
           <TextInput
@@ -277,15 +539,19 @@ const RegisterScreen = ({ navigation }) => {
             placeholder="SURNAME, FIRST NAME M."
             placeholderTextColor={COLORS.gray}
             value={fullName}
-            onChangeText={(t) => setFullName(t.toUpperCase())}
+            onChangeText={(t) => {
+              setFullName(t.toUpperCase())
+              clearFeedback()
+            }}
             autoCapitalize="characters"
           />
           <Text style={styles.helperText}>
-            Must match your record in the {role === 'student' ? 'student' : 'faculty'} roster.
+            Must match your record in the{' '}
+            {role === 'student' ? 'student' : 'faculty'} roster.
           </Text>
         </View>
 
-        {/* Email */}
+        {/* EMAIL */}
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Email</Text>
           <TextInput
@@ -293,14 +559,17 @@ const RegisterScreen = ({ navigation }) => {
             placeholder="e.g. name@batstate-u.edu.ph"
             placeholderTextColor={COLORS.gray}
             value={email}
-            onChangeText={(t) => setEmail(t.toLowerCase())}
+            onChangeText={(t) => {
+              setEmail(t.toLowerCase())
+              clearFeedback()
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
           />
         </View>
 
-        {/* Role */}
+        {/* ROLE */}
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Account Type</Text>
           <View style={styles.roleContainer}>
@@ -311,7 +580,7 @@ const RegisterScreen = ({ navigation }) => {
               ]}
               onPress={() => {
                 setRole('student')
-                setErrorMsg('')
+                clearFeedback()
               }}
             >
               <Text
@@ -331,7 +600,7 @@ const RegisterScreen = ({ navigation }) => {
               ]}
               onPress={() => {
                 setRole('faculty')
-                setErrorMsg('')
+                clearFeedback()
               }}
             >
               <Text
@@ -346,7 +615,7 @@ const RegisterScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Student SR Code */}
+        {/* SR CODE (students only) */}
         {role === 'student' && (
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>SR Code</Text>
@@ -355,7 +624,10 @@ const RegisterScreen = ({ navigation }) => {
               placeholder="e.g. 2023-00123"
               placeholderTextColor={COLORS.gray}
               value={srCode}
-              onChangeText={setSrCode}
+              onChangeText={(t) => {
+                setSrCode(t)
+                clearFeedback()
+              }}
               autoCapitalize="characters"
             />
             <Text style={styles.helperText}>
@@ -364,33 +636,69 @@ const RegisterScreen = ({ navigation }) => {
           </View>
         )}
 
-        {/* Password */}
+        {/* PASSWORD */}
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="At least 6 characters"
-            placeholderTextColor={COLORS.gray}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder="At least 6 characters"
+              placeholderTextColor={COLORS.gray}
+              value={password}
+              onChangeText={(t) => {
+                setPassword(t)
+                clearFeedback()
+              }}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity
+              style={styles.showPasswordButton}
+              onPress={() => setShowPassword((v) => !v)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Feather
+                name={showPassword ? 'eye-off' : 'eye'}
+                size={20}
+                color="#9E9E9E"
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Confirm Password */}
+        {/* CONFIRM PASSWORD */}
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Confirm Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Re-enter your password"
-            placeholderTextColor={COLORS.gray}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-          />
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder="Re-enter your password"
+              placeholderTextColor={COLORS.gray}
+              value={confirmPassword}
+              onChangeText={(t) => {
+                setConfirmPassword(t)
+                clearFeedback()
+              }}
+              secureTextEntry={!showConfirm}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity
+              style={styles.showPasswordButton}
+              onPress={() => setShowConfirm((v) => !v)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Feather
+                name={showConfirm ? 'eye-off' : 'eye'}
+                size={20}
+                color="#9E9E9E"
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Register Button */}
+        {/* REGISTER BUTTON */}
         <TouchableOpacity
           style={[
             styles.registerButton,
@@ -406,18 +714,26 @@ const RegisterScreen = ({ navigation }) => {
           )}
         </TouchableOpacity>
 
-        {/* Login */}
+        <Text style={styles.rosterHint}>
+          Not on the roster yet? Contact your Program Chair or the Admin
+          to be added first.
+        </Text>
+
+        {/* LOGIN */}
         <View style={styles.loginContainer}>
           <Text style={styles.loginText}>Already have an account?</Text>
           <TouchableOpacity onPress={() => navigation.navigate('Login')}>
             <Text style={styles.loginLink}>Login</Text>
           </TouchableOpacity>
         </View>
-
       </View>
     </ScrollView>
   )
 }
+
+// ============================================================
+// STYLES
+// ============================================================
 
 const styles = StyleSheet.create({
   container: {
@@ -445,6 +761,8 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     marginBottom: 24,
   },
+
+  // ---- Inputs ----
   inputContainer: {
     marginBottom: 16,
   },
@@ -470,6 +788,24 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontStyle: 'italic',
   },
+
+  // ---- Password with eye toggle ----
+  passwordWrapper: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  showPasswordButton: {
+    position: 'absolute',
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ---- Role selector ----
   roleContainer: {
     flexDirection: 'row',
     gap: 10,
@@ -496,6 +832,8 @@ const styles = StyleSheet.create({
   roleTextActive: {
     color: COLORS.white,
   },
+
+  // ---- Register button ----
   registerButton: {
     height: 52,
     backgroundColor: COLORS.primary,
@@ -512,32 +850,90 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  errorBox: {
+
+  // ---- Feedback alerts ----
+  alertBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  alertError: {
     backgroundColor: '#FDECEC',
-    borderWidth: 1,
     borderColor: '#F5B5B5',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
   },
-  errorText: {
-    color: COLORS.error,
-    fontSize: 13,
+  alertWarning: {
+    backgroundColor: '#FFF6E0',
+    borderColor: '#F0D58C',
   },
-  noticeBox: {
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
-  },
-  noticeSuccess: {
+  alertSuccess: {
     backgroundColor: '#EAF6EC',
-    borderWidth: 1,
-    borderColor: COLORS.success,
+    borderColor: '#A7F3D0',
   },
-  noticeText: {
-    color: COLORS.black,
+
+  alertIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  alertIconErr: { backgroundColor: COLORS.error },
+  alertIconWarn: { backgroundColor: COLORS.warning },
+  alertIconOk: { backgroundColor: COLORS.success },
+  alertIconText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 13,
+  },
+
+  alertTitle: {
     fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 3,
   },
+  alertMessage: {
+    fontSize: 12,
+    color: COLORS.black,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  alertHint: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 4,
+    lineHeight: 16,
+    fontStyle: 'italic',
+  },
+  alertClose: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  alertCloseText: {
+    fontSize: 14,
+    color: COLORS.gray,
+    fontWeight: '700',
+  },
+
+  // ---- Roster hint ----
+  rosterHint: {
+    fontSize: 11,
+    color: COLORS.gray,
+    textAlign: 'center',
+    marginTop: 16,
+    fontStyle: 'italic',
+    lineHeight: 16,
+    paddingHorizontal: 12,
+  },
+
+  // ---- Login footer ----
   loginContainer: {
     flexDirection: 'row',
     justifyContent: 'center',

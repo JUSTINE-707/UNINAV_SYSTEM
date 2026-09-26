@@ -5,7 +5,7 @@
 
 // DB day codes: M, T, W, Th, F, S  (Sunday has no code -> null)
 // Index = JS Date.getDay()
-export const DAY_CODES = [null, 'M', 'T', 'W', 'Th', 'F', 'S'];
+export const DAY_CODES = ['Sun', 'M', 'T', 'W', 'Th', 'F', 'Sat'];
 
 // Full names, for DISPLAY ONLY (never query with these)
 export const DAY_NAMES = [

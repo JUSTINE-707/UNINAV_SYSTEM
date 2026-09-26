@@ -104,7 +104,10 @@ const ReportGhostScreen = () => {
   const [cause, setCause] = useState(null);
   const [profReason, setProfReason] = useState(null);
   const [notes, setNotes] = useState('');
-  const [releaseRoom, setReleaseRoom] = useState(false);
+
+  // ── Release room defaults to ON ───────────────────────────
+  const [releaseRoom, setReleaseRoom] = useState(true);
+
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -240,15 +243,17 @@ const ReportGhostScreen = () => {
     if (cause !== 'professor') setProfReason(null);
   }, [cause]);
 
+  // Reset form state whenever the day changes — release room back to ON
   useEffect(() => {
     setCause(null);
     setProfReason(null);
-    setReleaseRoom(false);
+    setReleaseRoom(true); // ← default ON
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayOffset]);
 
+  // Reset release room back to ON when picking a different class
   useEffect(() => {
-    setReleaseRoom(false);
+    setReleaseRoom(true); // ← default ON
   }, [selectedClass?.id]);
 
   const handleSubmit = async () => {
@@ -730,8 +735,48 @@ const ReportGhostScreen = () => {
                     <Text style={styles.releaseToggleText}>
                       Let other classes use{' '}
                       <Text style={{ fontWeight: '900' }}>{selectedClass.room_name}</Text>{' '}
-                      during this time slot. Leave OFF if the room should stay reserved for you.
+                      during this time slot. Turn OFF if the room should stay reserved for you.
                     </Text>
+
+                    {/* Live preview of what the room status will become */}
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        marginTop: 10,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          color: '#9CA3AF',
+                          fontWeight: '600',
+                        }}
+                      >
+                        Room status will show:
+                      </Text>
+                      <View
+                        style={{
+                          marginLeft: 8,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 6,
+                          backgroundColor: releaseRoom
+                            ? '#EAF6EC'
+                            : '#F3F4F6',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: '800',
+                            color: releaseRoom ? '#059669' : '#6B7280',
+                          }}
+                        >
+                          {releaseRoom ? '● AVAILABLE' : '● CANCELLED'}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                   <Switch
                     value={releaseRoom}
@@ -1383,8 +1428,8 @@ const styles = StyleSheet.create({
   primaryButton: {
     width: '100%',
     backgroundColor: COLORS.primary,
-    paddingVertical: 15,
     borderRadius: 12,
+    paddingVertical: 15,
     alignItems: 'center',
   },
   primaryButtonText: {

@@ -8,6 +8,8 @@ import {
   RefreshControl,
   Alert,
   StatusBar,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../services/supabase';
@@ -29,6 +31,46 @@ const DAY_LABELS = {
   Th: 'Thursday',
   F: 'Friday',
   Sat: 'Saturday',
+};
+
+// ------------------------------------------------------------
+// Student-facing cancellation reasons
+// ------------------------------------------------------------
+
+const STUDENT_REASON_LABELS = {
+  official_duty: 'Your professor had an official university commitment.',
+  medical: 'Your professor was on medical or sick leave.',
+  emergency: 'Your professor had a personal emergency.',
+  personal: 'Your professor was unavailable due to a personal matter.',
+  other_prof: 'This class was cancelled by your professor.',
+
+  class_cancelled: 'This class was cancelled.',
+  no_students: 'No students attended, so the class did not push through.',
+  room_unavailable: 'The assigned room was not available.',
+  moved_online: 'This class was moved to an online session.',
+
+  other: 'This class was cancelled.',
+};
+
+const buildCancelReason = (ghost) => {
+  if (!ghost) return 'This class was cancelled.';
+
+  const reason =
+    STUDENT_REASON_LABELS[ghost.reason] ||
+    STUDENT_REASON_LABELS[ghost.excused_reason] ||
+    null;
+
+  if (reason) return reason;
+
+  const causeFallback = {
+    professor: 'Your professor was not available.',
+    students: 'No students attended.',
+    room: 'The assigned room was not available.',
+    admin: 'The class was moved or cancelled by the administration.',
+    other: 'This class was cancelled.',
+  };
+
+  return causeFallback[ghost.cause] || 'This class was cancelled.';
 };
 
 // ============================================================
@@ -92,12 +134,23 @@ const getGreeting = () => {
   return 'Good evening';
 };
 
+const titleCase = (str) => {
+  if (!str) return '';
+  return str
+    .toString()
+    .toLowerCase()
+    .split(' ')
+    .map((word) =>
+      word
+        .split('-')
+        .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+        .join('-')
+    )
+    .join(' ');
+};
+
 // ============================================================
 // LIVE STATUS
-//
-// Time wins over scan. Once the class window has ended, the
-// state is "ended" regardless of whether a check-in exists.
-// The scan timestamp is still shown as context.
 // ============================================================
 
 const getLiveStatus = (cls, nowMin) => {
@@ -114,17 +167,15 @@ const getLiveStatus = (cls, nowMin) => {
     ? cls.liveSession.class_type === 'online'
     : isOnlineRoom(cls.room_name);
 
-  // 1. Ghost report wins over everything
   if (cls.ghostReport) {
     return {
       roomState: 'cancelled',
       icon: '⚠',
       headline: 'CLASS CANCELLED',
-      subline: 'No class in this room today',
+      subline: buildCancelReason(cls.ghostReport),
     };
   }
 
-  // 2. Online class
   if (isOnline) {
     return {
       roomState: 'online',
@@ -138,7 +189,6 @@ const getLiveStatus = (cls, nowMin) => {
 
   if (start === null || end === null) return null;
 
-  // 3. Window passed — time wins
   if (nowMin > end) {
     return {
       roomState: 'ended',
@@ -150,7 +200,6 @@ const getLiveStatus = (cls, nowMin) => {
     };
   }
 
-  // 4. Before the window
   if (nowMin < start) {
     return {
       roomState: 'upcoming',
@@ -160,7 +209,6 @@ const getLiveStatus = (cls, nowMin) => {
     };
   }
 
-  // 5. Inside window — check scan
   if (hasSession) {
     const t = formatVerifiedTime(cls.liveSession.scanned_at);
     return {
@@ -184,7 +232,7 @@ const stateAccent = (state) => {
     case 'occupied': return '#059669';
     case 'vacant': return '#D97706';
     case 'online': return '#3B82F6';
-    case 'cancelled': return '#6B7280';
+    case 'cancelled': return '#B00020';
     case 'ended': return '#9CA3AF';
     case 'upcoming': return '#8B0000';
     default: return '#9CA3AF';
@@ -205,6 +253,9 @@ const StudentDashboard = ({ navigation }) => {
   const [todayClasses, setTodayClasses] = useState([]);
   const [nextClass, setNextClass] = useState(null);
   const [now, setNow] = useState(new Date());
+
+  // Class detail modal
+  const [detailClass, setDetailClass] = useState(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
@@ -317,7 +368,9 @@ const StudentDashboard = ({ navigation }) => {
 
           supabase
             .from('ghost_reports')
-            .select('schedule_id, reason, cause, is_excused')
+            .select(
+              'schedule_id, reason, cause, is_excused, excused_reason, notes'
+            )
             .in('schedule_id', scheduleIds)
             .eq('report_date', todayDate),
         ]);
@@ -369,6 +422,8 @@ const StudentDashboard = ({ navigation }) => {
   // NAVIGATION HELPERS
   // ============================================================
 
+  const closeDetail = () => setDetailClass(null);
+
   const openFullSchedule = () => {
     navigation.navigate('Schedule');
   };
@@ -390,6 +445,11 @@ const StudentDashboard = ({ navigation }) => {
       );
       return;
     }
+    if (cls.ghostReport) {
+      Alert.alert('Class Cancelled', buildCancelReason(cls.ghostReport));
+      return;
+    }
+    closeDetail();
     navigate('StudentMap', { roomName: cls.room_name });
   };
 
@@ -408,9 +468,14 @@ const StudentDashboard = ({ navigation }) => {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const nextLive = nextClass ? getLiveStatus(nextClass, nowMin) : null;
   const remainingClasses = todayClasses.filter((c) => {
+    if (c.ghostReport) return false;
     const end = timeToMinutes(c.end_time);
     return end !== null && end > nowMin;
   });
+
+  const displayName = profile?.full_name
+    ? titleCase(profile.full_name)
+    : 'Student';
 
   return (
     <View style={styles.container}>
@@ -427,14 +492,13 @@ const StudentDashboard = ({ navigation }) => {
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
             <Text style={styles.headerEyebrow}>STUDENT PORTAL</Text>
-            <Text style={styles.headerTitle} numberOfLines={1}>
+            <Text style={styles.headerTitle} numberOfLines={2}>
               {getGreeting()}
-              {profile?.full_name
-                ? `, ${profile.full_name.split(' ')[0]}`
-                : ''}
+            </Text>
+            <Text style={styles.headerName} numberOfLines={1}>
+              {displayName}
             </Text>
             <Text style={styles.headerSubtitle}>
-              {profile?.sr_code ? `${profile.sr_code} · ` : ''}
               {DAY_LABELS[DAYS[now.getDay()]] || DAYS[now.getDay()]}
               {semester ? ` · ${semester.name}` : ''}
             </Text>
@@ -471,8 +535,10 @@ const StudentDashboard = ({ navigation }) => {
                 ]}
               />
               <Text style={styles.nextClassEyebrow}>
-                {nextLive.roomState === 'occupied' ||
-                nextLive.roomState === 'vacant'
+                {nextLive.roomState === 'cancelled'
+                  ? 'CANCELLED'
+                  : nextLive.roomState === 'occupied' ||
+                    nextLive.roomState === 'vacant'
                   ? 'IN PROGRESS'
                   : nextLive.roomState === 'online'
                   ? 'ONLINE NOW'
@@ -530,16 +596,23 @@ const StudentDashboard = ({ navigation }) => {
               <Text style={styles.statusSubline}>{nextLive.subline}</Text>
             </View>
 
-            {nextLive.roomState !== 'online' && (
-              <TouchableOpacity
-                style={styles.scanButton}
-                onPress={() => handleNavigate(nextClass)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.scanButtonIcon}>↗</Text>
-                <Text style={styles.scanButtonText}>View Route to Room</Text>
-              </TouchableOpacity>
+            {nextClass.ghostReport?.notes && (
+              <View style={styles.notesBox}>
+                <Text style={styles.notesLabel}>NOTE FROM PROFESSOR</Text>
+                <Text style={styles.notesText} numberOfLines={4}>
+                  "{nextClass.ghostReport.notes}"
+                </Text>
+              </View>
             )}
+
+            <TouchableOpacity
+              style={styles.scanButton}
+              onPress={() => setDetailClass(nextClass)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.scanButtonIcon}>ⓘ</Text>
+              <Text style={styles.scanButtonText}>View Class Details</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.emptyCard}>
@@ -572,25 +645,45 @@ const StudentDashboard = ({ navigation }) => {
             todayClasses.slice(0, 3).map((cls) => {
               const live = getLiveStatus(cls, nowMin);
               const accent = live ? stateAccent(live.roomState) : '#9CA3AF';
+              const isGhost = !!cls.ghostReport;
 
               return (
                 <TouchableOpacity
                   key={cls.id}
-                  style={styles.classCard}
+                  style={[
+                    styles.classCard,
+                    isGhost && styles.classCardGhost,
+                  ]}
                   activeOpacity={0.85}
-                  onPress={() => handleNavigate(cls)}
+                  onPress={() => setDetailClass(cls)}
                 >
                   <View
                     style={[styles.classAccent, { backgroundColor: accent }]}
                   />
                   <View style={styles.classInfo}>
-                    <Text style={styles.classSubject}>
+                    <Text
+                      style={[
+                        styles.classSubject,
+                        isGhost && styles.classSubjectGhost,
+                      ]}
+                    >
                       {cls.subject_code}
                     </Text>
-                    <Text style={styles.classTitle} numberOfLines={1}>
+                    <Text
+                      style={[
+                        styles.classTitle,
+                        isGhost && styles.classTitleGhost,
+                      ]}
+                      numberOfLines={1}
+                    >
                       {cls.course_title}
                     </Text>
-                    <Text style={styles.classTime}>
+                    <Text
+                      style={[
+                        styles.classTime,
+                        isGhost && styles.classTimeGhost,
+                      ]}
+                    >
                       {formatTime(cls.start_time)} – {formatTime(cls.end_time)}
                       {cls.room_name ? ` · ${cls.room_name}` : ''}
                     </Text>
@@ -604,11 +697,20 @@ const StudentDashboard = ({ navigation }) => {
                           ]}
                         />
                         <Text
-                          style={[styles.liveInlineText, { color: accent }]}
+                          style={[
+                            styles.liveInlineText,
+                            { color: accent },
+                          ]}
                         >
                           {live.headline}
                         </Text>
                       </View>
+                    )}
+
+                    {isGhost && (
+                      <Text style={styles.reasonInline} numberOfLines={2}>
+                        {buildCancelReason(cls.ghostReport)}
+                      </Text>
                     )}
                   </View>
                 </TouchableOpacity>
@@ -661,6 +763,257 @@ const StudentDashboard = ({ navigation }) => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* ============================================================
+          CLASS DETAIL MODAL
+          ============================================================ */}
+      <Modal
+        visible={!!detailClass}
+        transparent
+        animationType="slide"
+        onRequestClose={closeDetail}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeDetail}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            <View style={styles.modalGrabber} />
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {detailClass &&
+                (() => {
+                  const live = getLiveStatus(detailClass, nowMin);
+                  const isGhost = !!detailClass.ghostReport;
+                  const isOnline = isOnlineRoom(detailClass.room_name);
+                  const accent = live ? stateAccent(live.roomState) : '#9CA3AF';
+                  const dayFull =
+                    DAY_LABELS[detailClass.day] || detailClass.day || '';
+
+                  const canViewRoute = !isGhost && !isOnline;
+
+                  return (
+                    <>
+                      {/* HEADER */}
+                      <View style={styles.modalHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
+                          <Text style={styles.modalSubject}>
+                            {detailClass.subject_code}
+                          </Text>
+                          <Text style={styles.modalTitle} numberOfLines={2}>
+                            {detailClass.course_title}
+                          </Text>
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={closeDetail}
+                          style={styles.modalCloseBtn}
+                        >
+                          <Text style={styles.modalCloseText}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* BADGES */}
+                      <View style={styles.modalBadgesRow}>
+                        {isGhost ? (
+                          <View
+                            style={[styles.modalBadge, styles.modalBadgeCancelled]}
+                          >
+                            <Text
+                              style={[
+                                styles.modalBadgeText,
+                                styles.modalBadgeTextCancelled,
+                              ]}
+                            >
+                              ! CANCELLED
+                            </Text>
+                          </View>
+                        ) : (
+                          <View
+                            style={[
+                              styles.modalBadge,
+                              isOnline
+                                ? styles.modalBadgeOnline
+                                : styles.modalBadgeF2F,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.modalBadgeText,
+                                isOnline
+                                  ? styles.modalBadgeTextOnline
+                                  : styles.modalBadgeTextF2F,
+                              ]}
+                            >
+                              {isOnline
+                                ? '🌐 ONLINE'
+                                : '● FACE-TO-FACE'}
+                            </Text>
+                          </View>
+                        )}
+
+                        {live && (
+                          <View style={styles.modalStatusPill}>
+                            <Text
+                              style={[
+                                styles.modalStatusPillText,
+                                { color: accent },
+                              ]}
+                            >
+                              ● {live.headline}
+                            </Text>
+                          </View>
+                        )}
+
+                        {!!dayFull && (
+                          <View style={styles.modalDayPill}>
+                            <Text style={styles.modalDayPillText}>
+                              {dayFull}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* INFO GRID */}
+                      <View style={styles.modalGrid}>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>PROFESSOR</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {detailClass.professor_name || '—'}
+                          </Text>
+                        </View>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>ROOM</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {isOnline
+                              ? 'Online'
+                              : detailClass.room_name || '—'}
+                          </Text>
+                        </View>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>START</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {formatTime(detailClass.start_time)}
+                          </Text>
+                        </View>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>END</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {formatTime(detailClass.end_time)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* UNIFIED STATUS BLOCK — cancellation reason folded in */}
+                      {live && (
+                        <View
+                          style={[
+                            styles.modalLiveBlock,
+                            {
+                              borderLeftColor: accent,
+                              backgroundColor: accent + '14',
+                            },
+                          ]}
+                        >
+                          <View style={styles.modalLiveHeader}>
+                            <Text
+                              style={[
+                                styles.modalLiveHeadline,
+                                { color: accent },
+                              ]}
+                            >
+                              {isGhost
+                                ? '⚠  CLASS CANCELLED'
+                                : `${live.icon}  ${live.headline}`}
+                            </Text>
+                            {!isGhost && detailClass.liveSession?.scanned_at && (
+                              <Text
+                                style={[
+                                  styles.modalLiveTime,
+                                  { color: accent },
+                                ]}
+                              >
+                                {formatVerifiedTime(
+                                  detailClass.liveSession.scanned_at
+                                )}
+                              </Text>
+                            )}
+                          </View>
+
+                          <Text style={styles.modalLiveSubline}>
+                            {isGhost
+                              ? buildCancelReason(detailClass.ghostReport)
+                              : live.subline}
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* PROFESSOR NOTE */}
+                      {isGhost && !!detailClass.ghostReport?.notes && (
+                        <View style={styles.modalNotesBox}>
+                          <Text style={styles.modalNotesLabel}>
+                            NOTE FROM PROFESSOR
+                          </Text>
+                          <Text style={styles.modalNotesText}>
+                            "{detailClass.ghostReport.notes}"
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* ACTIONS */}
+                      <View style={styles.modalActions}>
+                        {canViewRoute && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={() => handleNavigate(detailClass)}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>
+                              ↗ View Route to Room
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        <TouchableOpacity
+                          style={
+                            canViewRoute
+                              ? styles.modalSecondaryBtn
+                              : styles.modalPrimaryBtn
+                          }
+                          onPress={closeDetail}
+                        >
+                          <Text
+                            style={
+                              canViewRoute
+                                ? styles.modalSecondaryBtnText
+                                : styles.modalPrimaryBtnText
+                            }
+                          >
+                            Close
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  );
+                })()}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -686,42 +1039,89 @@ const StudentDashboardSkeleton = () => (
       <View style={styles.summaryRow}>
         <View style={styles.summaryCard}>
           <Skeleton width={40} height={26} radius={6} />
-          <Skeleton width="70%" height={11} radius={4} style={{ marginTop: 10 }} />
+          <Skeleton
+            width="70%"
+            height={11}
+            radius={4}
+            style={{ marginTop: 10 }}
+          />
         </View>
         <View style={styles.summaryCard}>
           <Skeleton width={40} height={26} radius={6} />
-          <Skeleton width="70%" height={11} radius={4} style={{ marginTop: 10 }} />
+          <Skeleton
+            width="70%"
+            height={11}
+            radius={4}
+            style={{ marginTop: 10 }}
+          />
         </View>
       </View>
 
       <View style={styles.nextClassCard}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+        >
           <SkeletonCircle size={10} />
           <Skeleton width={90} height={10} radius={4} />
         </View>
 
-        <Skeleton width="55%" height={28} radius={6} style={{ marginTop: 14 }} />
-        <Skeleton width="85%" height={16} radius={4} style={{ marginTop: 8 }} />
+        <Skeleton
+          width="55%"
+          height={28}
+          radius={6}
+          style={{ marginTop: 14 }}
+        />
+        <Skeleton
+          width="85%"
+          height={16}
+          radius={4}
+          style={{ marginTop: 8 }}
+        />
 
         <View style={styles.nextClassMeta}>
           <View style={styles.metaItem}>
             <Skeleton width={30} height={9} radius={3} />
-            <Skeleton width={50} height={12} radius={4} style={{ marginTop: 6 }} />
+            <Skeleton
+              width={50}
+              height={12}
+              radius={4}
+              style={{ marginTop: 6 }}
+            />
           </View>
           <View style={styles.metaDivider} />
           <View style={styles.metaItem}>
             <Skeleton width={30} height={9} radius={3} />
-            <Skeleton width={50} height={12} radius={4} style={{ marginTop: 6 }} />
+            <Skeleton
+              width={50}
+              height={12}
+              radius={4}
+              style={{ marginTop: 6 }}
+            />
           </View>
           <View style={styles.metaDivider} />
           <View style={styles.metaItem}>
             <Skeleton width={30} height={9} radius={3} />
-            <Skeleton width={50} height={12} radius={4} style={{ marginTop: 6 }} />
+            <Skeleton
+              width={50}
+              height={12}
+              radius={4}
+              style={{ marginTop: 6 }}
+            />
           </View>
         </View>
 
-        <Skeleton width="100%" height={62} radius={10} style={{ marginTop: 14 }} />
-        <Skeleton width="100%" height={50} radius={14} style={{ marginTop: 14 }} />
+        <Skeleton
+          width="100%"
+          height={62}
+          radius={10}
+          style={{ marginTop: 14 }}
+        />
+        <Skeleton
+          width="100%"
+          height={50}
+          radius={14}
+          style={{ marginTop: 14 }}
+        />
       </View>
 
       <View style={styles.section}>
@@ -735,22 +1135,52 @@ const StudentDashboardSkeleton = () => (
             <Skeleton width={4} height={72} radius={2} />
             <View style={styles.classInfo}>
               <Skeleton width={70} height={14} radius={4} />
-              <Skeleton width="85%" height={14} radius={4} style={{ marginTop: 6 }} />
-              <Skeleton width="60%" height={12} radius={4} style={{ marginTop: 8 }} />
-              <Skeleton width="40%" height={11} radius={4} style={{ marginTop: 10 }} />
+              <Skeleton
+                width="85%"
+                height={14}
+                radius={4}
+                style={{ marginTop: 6 }}
+              />
+              <Skeleton
+                width="60%"
+                height={12}
+                radius={4}
+                style={{ marginTop: 8 }}
+              />
+              <Skeleton
+                width="40%"
+                height={11}
+                radius={4}
+                style={{ marginTop: 10 }}
+              />
             </View>
           </View>
         ))}
       </View>
 
       <View style={styles.section}>
-        <Skeleton width={120} height={18} radius={6} style={{ marginBottom: 12 }} />
+        <Skeleton
+          width={120}
+          height={18}
+          radius={6}
+          style={{ marginBottom: 12 }}
+        />
         <View style={styles.quickGrid}>
           {[1, 2, 3, 4].map((i) => (
             <View key={i} style={styles.quickCard}>
               <Skeleton width={24} height={24} radius={6} />
-              <Skeleton width="70%" height={13} radius={4} style={{ marginTop: 10 }} />
-              <Skeleton width="50%" height={11} radius={4} style={{ marginTop: 6 }} />
+              <Skeleton
+                width="70%"
+                height={13}
+                radius={4}
+                style={{ marginTop: 10 }}
+              />
+              <Skeleton
+                width="50%"
+                height={11}
+                radius={4}
+                style={{ marginTop: 6 }}
+              />
             </View>
           ))}
         </View>
@@ -790,18 +1220,33 @@ const styles = StyleSheet.create({
     opacity: 0.75,
     marginBottom: 4,
   },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
-  headerSubtitle: {
-    fontSize: 13,
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
     color: '#FFFFFF',
-    opacity: 0.85,
+    opacity: 0.95,
+    letterSpacing: -0.2,
+  },
+  headerName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
     marginTop: 2,
+    letterSpacing: -0.2,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    opacity: 0.75,
+    marginTop: 6,
+    fontWeight: '600',
   },
   logoutButton: {
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 8,
     backgroundColor: 'rgba(255,255,255,0.15)',
+    alignSelf: 'flex-start',
   },
   logoutText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
 
@@ -906,6 +1351,31 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     marginTop: 4,
     fontWeight: '500',
+    lineHeight: 17,
+  },
+
+  notesBox: {
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFF8F0',
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#C77700',
+  },
+  notesLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: '#8A4B00',
+    marginBottom: 3,
+    textTransform: 'uppercase',
+  },
+  notesText: {
+    fontSize: 12,
+    color: '#5A3200',
+    fontStyle: 'italic',
+    lineHeight: 17,
   },
 
   scanButton: {
@@ -1003,6 +1473,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+  classCardGhost: {
+    backgroundColor: '#FFFAFA',
+    borderWidth: 1,
+    borderColor: '#F5C2C0',
+    borderStyle: 'dashed',
+  },
   classAccent: { width: 4, borderRadius: 2, marginRight: 12 },
   classInfo: { flex: 1 },
   classSubject: {
@@ -1011,17 +1487,26 @@ const styles = StyleSheet.create({
     color: '#8B0000',
     letterSpacing: 0.3,
   },
+  classSubjectGhost: { color: '#6B7280' },
   classTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1A1A1A',
     marginTop: 2,
   },
+  classTitleGhost: {
+    color: '#6B7280',
+    textDecorationLine: 'line-through',
+  },
   classTime: {
     fontSize: 12,
     color: '#6B7280',
     marginTop: 4,
     fontWeight: '500',
+  },
+  classTimeGhost: {
+    color: '#9CA3AF',
+    textDecorationLine: 'line-through',
   },
   liveInlineRow: {
     flexDirection: 'row',
@@ -1039,6 +1524,13 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.3,
   },
+  reasonInline: {
+    fontSize: 12,
+    color: '#7A0014',
+    fontWeight: '600',
+    marginTop: 6,
+    lineHeight: 16,
+  },
 
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   quickCard: {
@@ -1055,6 +1547,237 @@ const styles = StyleSheet.create({
   quickIcon: { fontSize: 24, marginBottom: 8 },
   quickLabel: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
   quickSub: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+
+  // ============================================================
+  // MODAL
+  // ============================================================
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 8,
+    maxHeight: '92%',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 20,
+  },
+  modalScrollContent: {
+    paddingHorizontal: 22,
+    paddingBottom: 48,
+  },
+  modalGrabber: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#D1D5DB',
+    marginBottom: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+    gap: 12,
+  },
+  modalEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    color: '#8B0000',
+    marginBottom: 4,
+  },
+  modalSubject: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#1A1A1A',
+    letterSpacing: -0.4,
+  },
+  modalTitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginTop: 4,
+    lineHeight: 19,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F5F5F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    fontSize: 15,
+    color: '#6B7280',
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+
+  modalBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  modalBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  modalBadgeF2F: { backgroundColor: '#FEF3C7' },
+  modalBadgeOnline: { backgroundColor: '#DBEAFE' },
+  modalBadgeCancelled: { backgroundColor: '#FDECEC' },
+  modalBadgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.4 },
+  modalBadgeTextF2F: { color: '#C77700' },
+  modalBadgeTextOnline: { color: '#1E88E5' },
+  modalBadgeTextCancelled: { color: '#B00020' },
+  modalStatusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F7',
+  },
+  modalStatusPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  modalDayPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F7',
+  },
+  modalDayPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    color: '#4B5563',
+  },
+
+  modalGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: '#F7F5F2',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    gap: 4,
+  },
+  modalGridItem: { width: '50%', paddingVertical: 6 },
+  modalGridLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#9A9A9E',
+    marginBottom: 3,
+  },
+  modalGridValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1A1A1A',
+  },
+
+  modalLiveBlock: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderLeftWidth: 4,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  modalLiveHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  modalLiveHeadline: { fontSize: 13, fontWeight: '900', letterSpacing: 0.3 },
+  modalLiveTime: { fontSize: 11, fontWeight: '800' },
+  modalLiveSubline: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '500',
+    lineHeight: 17,
+  },
+
+  modalNotesBox: {
+    backgroundColor: '#FFF8F0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#C77700',
+  },
+  modalNotesLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#8A4B00',
+    marginBottom: 6,
+  },
+  modalNotesText: {
+    fontSize: 12,
+    color: '#5A3200',
+    fontStyle: 'italic',
+    lineHeight: 17,
+  },
+
+  modalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 4,
+  },
+  modalPrimaryBtn: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 140,
+    backgroundColor: '#8B0000',
+    paddingVertical: 15,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#8B0000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  modalPrimaryBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  modalSecondaryBtn: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 110,
+    backgroundColor: '#F5F5F7',
+    paddingVertical: 15,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalSecondaryBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
 });
 
 export default StudentDashboard;

@@ -13,6 +13,7 @@ import FacultyScheduleScreen from '../screens/professorSrc/FacultyScheduleScreen
 import ReportGhostScreen from '../screens/professorSrc/ReportGhostScreen'
 import FacultyMapScreen from '../screens/professorSrc/FacultyMapScreen'
 import EndClassEarlyScreen from '../screens/professorSrc/EndClassEarlyScreen'
+import RoomStatusScreen from '../screens/professorSrc/RoomStatusScreen'
 
 const Stack = createNativeStackNavigator()
 
@@ -31,6 +32,7 @@ const AppNavigator = () => {
         <Stack.Screen name="ReportGhost" component={ReportGhostScreen} />
         <Stack.Screen name="Map" component={FacultyMapScreen} />
         <Stack.Screen name="EndClassEarly" component={EndClassEarlyScreen} />
+        <Stack.Screen name="RoomStatus" component={RoomStatusScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   )

@@ -7,6 +7,8 @@ import {
   RefreshControl,
   TouchableOpacity,
   ScrollView,
+  Modal,
+  Pressable,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 
@@ -29,6 +31,46 @@ const DAY_LABELS = {
 const DAY_SHORT = {
   M: 'Mon', T: 'Tue', W: 'Wed', Th: 'Thu',
   F: 'Fri', Sat: 'Sat', Sun: 'Sun',
+}
+
+// ------------------------------------------------------------
+// Student-facing cancellation reasons
+// ------------------------------------------------------------
+
+const STUDENT_REASON_LABELS = {
+  official_duty: 'Your professor had an official university commitment.',
+  medical: 'Your professor was on medical or sick leave.',
+  emergency: 'Your professor had a personal emergency.',
+  personal: 'Your professor was unavailable due to a personal matter.',
+  other_prof: 'This class was cancelled by your professor.',
+
+  class_cancelled: 'This class was cancelled.',
+  no_students: 'No students attended, so the class did not push through.',
+  room_unavailable: 'The assigned room was not available.',
+  moved_online: 'This class was moved to an online session.',
+
+  other: 'This class was cancelled.',
+}
+
+const buildCancelReason = (ghost) => {
+  if (!ghost) return 'This class was cancelled.'
+
+  const reason =
+    STUDENT_REASON_LABELS[ghost.reason] ||
+    STUDENT_REASON_LABELS[ghost.excused_reason] ||
+    null
+
+  if (reason) return reason
+
+  const causeFallback = {
+    professor: 'Your professor was not available.',
+    students: 'No students attended.',
+    room: 'The assigned room was not available.',
+    admin: 'The class was moved or cancelled by the administration.',
+    other: 'This class was cancelled.',
+  }
+
+  return causeFallback[ghost.cause] || 'This class was cancelled.'
 }
 
 // ============================================================
@@ -58,6 +100,24 @@ const toLocalDateString = (date) => {
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+const getWeekRange = () => {
+  const now = new Date()
+  const dow = now.getDay()
+  const diffToMonday = dow === 0 ? -6 : 1 - dow
+
+  const monday = new Date(now)
+  monday.setDate(now.getDate() + diffToMonday)
+  monday.setHours(0, 0, 0, 0)
+
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+
+  return {
+    start: toLocalDateString(monday),
+    end: toLocalDateString(sunday),
+  }
 }
 
 const formatTime = (time) => {
@@ -105,9 +165,6 @@ const getClassStatus = (item, todayCode) => {
 
 // ============================================================
 // LIVE STATUS
-//
-// Time wins over scan. Once the class window has ended, the
-// state is "ended" regardless of whether a check-in exists.
 // ============================================================
 
 const getLiveStatus = (cls, nowMin) => {
@@ -127,7 +184,7 @@ const getLiveStatus = (cls, nowMin) => {
       roomState: 'cancelled',
       icon: '⚠',
       headline: 'CLASS CANCELLED',
-      subline: 'No class is happening in this room',
+      subline: buildCancelReason(cls.ghostReport),
     }
   }
 
@@ -144,7 +201,6 @@ const getLiveStatus = (cls, nowMin) => {
 
   if (start === null || end === null) return null
 
-  // Window passed
   if (nowMin > end) {
     return {
       roomState: 'ended',
@@ -156,7 +212,6 @@ const getLiveStatus = (cls, nowMin) => {
     }
   }
 
-  // Before window
   if (nowMin < start) {
     return {
       roomState: 'upcoming',
@@ -166,7 +221,6 @@ const getLiveStatus = (cls, nowMin) => {
     }
   }
 
-  // Inside window
   if (hasSession) {
     const t = formatVerifiedTime(cls.liveSession.scanned_at)
     return {
@@ -190,7 +244,7 @@ const stateAccent = (state) => {
     case 'occupied': return '#059669'
     case 'vacant': return '#D97706'
     case 'online': return '#3B82F6'
-    case 'cancelled': return '#6B7280'
+    case 'cancelled': return '#B00020'
     case 'ended': return '#9CA3AF'
     case 'upcoming': return '#8B0000'
     default: return '#9CA3AF'
@@ -220,6 +274,9 @@ const StudentScheduleScreen = () => {
 
   const [selectedDay, setSelectedDay] = useState(() => getTodayCode())
 
+  // Modal
+  const [detailClass, setDetailClass] = useState(null)
+
   const listRef = useRef(null)
   const didMountRef = useRef(false)
 
@@ -242,7 +299,7 @@ const StudentScheduleScreen = () => {
       }
 
       const userId = session.user.id
-      const todayDate = toLocalDateString(new Date())
+      const { start: weekStartStr, end: weekEndStr } = getWeekRange()
 
       const { data: rosterRow, error: rosterErr } = await supabase
         .from('students_roster')
@@ -314,9 +371,13 @@ const StudentScheduleScreen = () => {
 
         supabase
           .from('ghost_reports')
-          .select('schedule_id, reason, cause, is_excused')
+          .select(
+            'schedule_id, reason, cause, is_excused, excused_reason, notes, report_date, created_at'
+          )
           .in('schedule_id', scheduleIds)
-          .eq('report_date', todayDate),
+          .gte('report_date', weekStartStr)
+          .lte('report_date', weekEndStr)
+          .order('created_at', { ascending: false }),
       ])
 
       if (sessionsRes.error)
@@ -331,7 +392,9 @@ const StudentScheduleScreen = () => {
 
       const ghostMap = {}
       ;(ghostsRes.data || []).forEach((g) => {
-        ghostMap[g.schedule_id] = g
+        if (!ghostMap[g.schedule_id]) {
+          ghostMap[g.schedule_id] = g
+        }
       })
 
       const merged = baseList.map((s) => ({
@@ -360,28 +423,59 @@ const StudentScheduleScreen = () => {
   // REALTIME
   // ============================================================
 
-  useEffect(() => {
-    if (!classes.length) return
+  const scheduleIdsRef = useRef(new Set())
 
-    const scheduleIds = new Set(classes.map((c) => c.id))
+  useEffect(() => {
+    scheduleIdsRef.current = new Set(classes.map((c) => c.id))
+  }, [classes])
+
+  const realtimeChannelRef = useRef(null)
+
+  useEffect(() => {
+    if (realtimeChannelRef.current) {
+      try {
+        supabase.removeChannel(realtimeChannelRef.current)
+      } catch (_) {}
+      realtimeChannelRef.current = null
+    }
+
+    const channelName = `student_schedule_live_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2)}`
 
     const channel = supabase
-      .channel('room_sessions_student_live')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'room_sessions' },
         (payload) => {
           const sid = payload.new?.schedule_id || payload.old?.schedule_id
-          if (!sid || !scheduleIds.has(sid)) return
+          if (!sid || !scheduleIdsRef.current.has(sid)) return
+          loadSchedule()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ghost_reports' },
+        (payload) => {
+          const sid = payload.new?.schedule_id || payload.old?.schedule_id
+          if (!sid || !scheduleIdsRef.current.has(sid)) return
           loadSchedule()
         }
       )
       .subscribe()
 
+    realtimeChannelRef.current = channel
+
     return () => {
-      supabase.removeChannel(channel)
+      try {
+        supabase.removeChannel(channel)
+      } catch (_) {}
+      if (realtimeChannelRef.current === channel) {
+        realtimeChannelRef.current = null
+      }
     }
-  }, [classes, loadSchedule])
+  }, [loadSchedule])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -510,14 +604,21 @@ const StudentScheduleScreen = () => {
     return () => clearTimeout(timer)
   }, [effectiveSelectedDay])
 
+  // ============================================================
+  // MODAL / NAV
+  // ============================================================
+
+  const closeDetail = () => setDetailClass(null)
+
   const openMapForRoom = (roomName) => {
     if (!roomName) return
     if (isOnlineRoom(roomName)) return
+    closeDetail()
     navigation.navigate('StudentMap', { roomName })
   }
 
   // ============================================================
-  // LOADING — skeleton
+  // LOADING
   // ============================================================
 
   if (loading) {
@@ -586,264 +687,557 @@ const StudentScheduleScreen = () => {
   const nextLive = nextClass ? getLiveStatus(nextClass, nowMin) : null
 
   return (
-    <SectionList
-      ref={listRef}
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      sections={sections}
-      keyExtractor={(item) => item.id}
-      stickySectionHeadersEnabled={false}
+    <View style={{ flex: 1 }}>
+      <SectionList
+        ref={listRef}
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        stickySectionHeadersEnabled={false}
 
-      ListHeaderComponent={
-        <View>
-          <View style={styles.hero}>
-            <Text style={styles.heroEyebrow}>MY SCHEDULE</Text>
-            <Text style={styles.heroDate}>{getTodayLabel()}</Text>
-            {semester && (
-              <Text style={styles.heroSemester}>{semester.name}</Text>
-            )}
-            <View style={styles.statsRow}>
-              <Stat label="Classes" value={stats.classes} />
-              <View style={styles.statDivider} />
-              <Stat label="Subjects" value={stats.subjects} />
-              <View style={styles.statDivider} />
-              <Stat label="Hours" value={stats.hours} />
-              <View style={styles.statDivider} />
-              <Stat label="Rooms" value={stats.rooms} />
+        ListHeaderComponent={
+          <View>
+            <View style={styles.hero}>
+              <Text style={styles.heroEyebrow}>MY SCHEDULE</Text>
+              <Text style={styles.heroDate}>{getTodayLabel()}</Text>
+              {semester && (
+                <Text style={styles.heroSemester}>{semester.name}</Text>
+              )}
+              <View style={styles.statsRow}>
+                <Stat label="Classes" value={stats.classes} />
+                <View style={styles.statDivider} />
+                <Stat label="Subjects" value={stats.subjects} />
+                <View style={styles.statDivider} />
+                <Stat label="Hours" value={stats.hours} />
+                <View style={styles.statDivider} />
+                <Stat label="Rooms" value={stats.rooms} />
+              </View>
             </View>
-          </View>
 
-          {nextClass && nextLive && (
-            <View style={styles.spotlight}>
-              <View style={styles.spotlightTop}>
-                <Text style={styles.spotlightLabel}>UP NEXT</Text>
-                <TouchableOpacity
-                  onPress={() => handleSelectDay(nextClass.day)}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={({ pressed }) => [
-                    styles.spotlightDayPill,
-                    pressed && styles.spotlightDayPillPressed,
+            {nextClass && nextLive && (
+              <View style={styles.spotlight}>
+                <View style={styles.spotlightTop}>
+                  <Text style={styles.spotlightLabel}>UP NEXT</Text>
+                  <TouchableOpacity
+                    onPress={() => handleSelectDay(nextClass.day)}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={({ pressed }) => [
+                      styles.spotlightDayPill,
+                      pressed && styles.spotlightDayPillPressed,
+                    ]}
+                  >
+                    <Text style={styles.spotlightDayText}>
+                      {DAY_SHORT[nextClass.day] || nextClass.day}
+                    </Text>
+                    <Text style={styles.spotlightDayChevron}>›</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.spotlightSubject}>{nextClass.subject_code}</Text>
+                <Text style={styles.spotlightTitle} numberOfLines={2}>
+                  {nextClass.course_title}
+                </Text>
+
+                <View style={styles.spotlightMetaRow}>
+                  <Text style={styles.spotlightMeta}>
+                    🕐  {formatTime(nextClass.start_time)} – {formatTime(nextClass.end_time)}
+                  </Text>
+                </View>
+                <View style={styles.spotlightMetaRow}>
+                  <Text style={styles.spotlightMeta}>
+                    📍  {nextClass.room_name || 'Not assigned'}
+                  </Text>
+                </View>
+                <View style={styles.spotlightMetaRow}>
+                  <Text style={styles.spotlightMeta}>
+                    👤  {nextClass.professor_name || 'Not assigned'}
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.spotlightStatusBlock,
+                    { borderLeftColor: stateAccent(nextLive.roomState) },
                   ]}
                 >
-                  <Text style={styles.spotlightDayText}>
-                    {DAY_SHORT[nextClass.day] || nextClass.day}
+                  <Text style={styles.spotlightStatusHeadline}>
+                    {nextLive.icon}  {nextLive.headline}
                   </Text>
-                  <Text style={styles.spotlightDayChevron}>›</Text>
-                </TouchableOpacity>
-              </View>
+                  <Text style={styles.spotlightStatusSub}>{nextLive.subline}</Text>
+                </View>
 
-              <Text style={styles.spotlightSubject}>{nextClass.subject_code}</Text>
-              <Text style={styles.spotlightTitle} numberOfLines={2}>
-                {nextClass.course_title}
-              </Text>
-
-              <View style={styles.spotlightMetaRow}>
-                <Text style={styles.spotlightMeta}>
-                  🕐  {formatTime(nextClass.start_time)} – {formatTime(nextClass.end_time)}
-                </Text>
-              </View>
-              <View style={styles.spotlightMetaRow}>
-                <Text style={styles.spotlightMeta}>
-                  📍  {nextClass.room_name || 'Not assigned'}
-                </Text>
-              </View>
-              <View style={styles.spotlightMetaRow}>
-                <Text style={styles.spotlightMeta}>
-                  👤  {nextClass.professor_name || 'Not assigned'}
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.spotlightStatusBlock,
-                  { borderLeftColor: stateAccent(nextLive.roomState) },
-                ]}
-              >
-                <Text style={styles.spotlightStatusHeadline}>
-                  {nextLive.icon}  {nextLive.headline}
-                </Text>
-                <Text style={styles.spotlightStatusSub}>{nextLive.subline}</Text>
-              </View>
-
-              {nextLive.roomState !== 'online' && (
                 <TouchableOpacity
-                  onPress={() => openMapForRoom(nextClass.room_name)}
+                  onPress={() => setDetailClass(nextClass)}
                   activeOpacity={0.8}
                   style={styles.spotlightRouteButton}
                 >
-                  <Text style={styles.spotlightRouteButtonText}>View route →</Text>
+                  <Text style={styles.spotlightRouteButtonText}>
+                    View details →
+                  </Text>
                 </TouchableOpacity>
-              )}
-            </View>
-          )}
+              </View>
+            )}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.dayStrip}
-          >
-            {sections.map((section) => (
-              <TouchableOpacity
-                key={section.title}
-                activeOpacity={0.7}
-                onPress={() => handleSelectDay(section.title)}
-                style={[
-                  styles.dayChip,
-                  section.isSelected && styles.dayChipSelected,
-                  section.isToday && !section.isSelected && styles.dayChipTodayOutline,
-                ]}
-              >
-                <Text
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.dayStrip}
+            >
+              {sections.map((section) => (
+                <TouchableOpacity
+                  key={section.title}
+                  activeOpacity={0.7}
+                  onPress={() => handleSelectDay(section.title)}
                   style={[
-                    styles.dayChipText,
-                    section.isSelected && styles.dayChipTextSelected,
+                    styles.dayChip,
+                    section.isSelected && styles.dayChipSelected,
+                    section.isToday && !section.isSelected && styles.dayChipTodayOutline,
                   ]}
                 >
-                  {section.short}
-                </Text>
-                {section.isToday && !section.isSelected && (
-                  <View style={styles.todayIndicator} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          <Text style={styles.sectionListHeading}>Weekly schedule</Text>
-        </View>
-      }
-
-      renderSectionHeader={({ section }) => (
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionHeaderLeft}>
-            <View style={[styles.sectionDot, section.isToday && styles.sectionDotToday]} />
-            <Text style={[styles.sectionTitle, section.isToday && styles.sectionTitleToday]}>
-              {section.isToday ? 'Today' : section.label}
-            </Text>
-          </View>
-          {section.isToday && (
-            <View style={styles.todayBadge}>
-              <Text style={styles.todayBadgeText}>{section.title}</Text>
-            </View>
-          )}
-          <Text style={styles.sectionCount}>
-            {section.data.length} {section.data.length === 1 ? 'class' : 'classes'}
-          </Text>
-        </View>
-      )}
-
-      renderItem={({ item, section }) => {
-        const status = getClassStatus(item, todayCode)
-        const live = getLiveStatus(item, nowMin)
-
-        const accent =
-          status === 'now' ? '#059669'
-          : status === 'soon' ? '#D97706'
-          : status === 'next' && section.isToday ? '#8B0000'
-          : '#9CA3AF'
-
-        const online = isOnlineRoom(item.room_name)
-
-        return (
-          <View style={styles.row}>
-            <View style={styles.rail}>
-              <Text style={styles.railTime}>
-                {formatTime(item.start_time).replace(' ', '\n')}
-              </Text>
-              <View style={[styles.railDot, { backgroundColor: accent }]} />
-              <View style={[styles.railLine, { backgroundColor: accent + '40' }]} />
-            </View>
-
-            <TouchableOpacity
-              activeOpacity={online ? 1 : 0.85}
-              disabled={online}
-              onPress={() => openMapForRoom(item.room_name)}
-              style={[
-                styles.card,
-                section.isToday && styles.cardToday,
-                online && styles.cardOnline,
-              ]}
-            >
-              <View style={[styles.cardAccent, { backgroundColor: accent }]} />
-
-              <View style={styles.cardBody}>
-                <View style={styles.cardHeaderRow}>
-                  <Text style={styles.subject}>{item.subject_code}</Text>
-
-                  {status === 'now' && (
-                    <View style={styles.badgeNow}>
-                      <Text style={styles.badgeNowText}>NOW</Text>
-                    </View>
-                  )}
-                  {status === 'soon' && (
-                    <View style={styles.badgeSoon}>
-                      <Text style={styles.badgeSoonText}>SOON</Text>
-                    </View>
-                  )}
-                  {status === 'done' && (
-                    <View style={styles.badgeDone}>
-                      <Text style={styles.badgeDoneText}>DONE</Text>
-                    </View>
-                  )}
-                </View>
-
-                <Text style={styles.title} numberOfLines={2}>
-                  {item.course_title}
-                </Text>
-
-                <Text style={styles.time}>
-                  {formatTime(item.start_time)} – {formatTime(item.end_time)}
-                </Text>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaIcon}>📍</Text>
-                  <Text style={styles.metaText} numberOfLines={1}>
-                    {item.room_name || 'Room not assigned'}
-                  </Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaIcon}>👤</Text>
-                  <Text style={styles.metaText} numberOfLines={1}>
-                    {item.professor_name || 'Professor not assigned'}
-                  </Text>
-                </View>
-
-                {live && (
-                  <View
+                  <Text
                     style={[
-                      styles.statusBlock,
-                      {
-                        borderLeftColor: stateAccent(live.roomState),
-                        backgroundColor: stateAccent(live.roomState) + '14',
-                      },
+                      styles.dayChipText,
+                      section.isSelected && styles.dayChipTextSelected,
                     ]}
                   >
+                    {section.short}
+                  </Text>
+                  {section.isToday && !section.isSelected && (
+                    <View style={styles.todayIndicator} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.sectionListHeading}>Weekly schedule</Text>
+          </View>
+        }
+
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderLeft}>
+              <View style={[styles.sectionDot, section.isToday && styles.sectionDotToday]} />
+              <Text style={[styles.sectionTitle, section.isToday && styles.sectionTitleToday]}>
+                {section.isToday ? 'Today' : section.label}
+              </Text>
+            </View>
+            {section.isToday && (
+              <View style={styles.todayBadge}>
+                <Text style={styles.todayBadgeText}>{section.title}</Text>
+              </View>
+            )}
+            <Text style={styles.sectionCount}>
+              {section.data.length} {section.data.length === 1 ? 'class' : 'classes'}
+            </Text>
+          </View>
+        )}
+
+        renderItem={({ item, section }) => {
+          const status = getClassStatus(item, todayCode)
+          const live = getLiveStatus(item, nowMin)
+          const isGhost = !!item.ghostReport
+
+          const accent =
+            isGhost ? '#B00020'
+            : status === 'now' ? '#059669'
+            : status === 'soon' ? '#D97706'
+            : status === 'next' && section.isToday ? '#8B0000'
+            : '#9CA3AF'
+
+          const online = isOnlineRoom(item.room_name)
+
+          return (
+            <View style={styles.row}>
+              <View style={styles.rail}>
+                <Text style={styles.railTime}>
+                  {formatTime(item.start_time).replace(' ', '\n')}
+                </Text>
+                <View style={[styles.railDot, { backgroundColor: accent }]} />
+                <View style={[styles.railLine, { backgroundColor: accent + '40' }]} />
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => setDetailClass(item)}
+                style={[
+                  styles.card,
+                  section.isToday && styles.cardToday,
+                  online && styles.cardOnline,
+                  isGhost && styles.cardGhost,
+                ]}
+              >
+                <View style={[styles.cardAccent, { backgroundColor: accent }]} />
+
+                <View style={styles.cardBody}>
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.subject}>{item.subject_code}</Text>
+
+                    {isGhost ? (
+                      <View style={styles.badgeCancelled}>
+                        <Text style={styles.badgeCancelledText}>CANCELLED</Text>
+                      </View>
+                    ) : (
+                      <>
+                        {status === 'now' && (
+                          <View style={styles.badgeNow}>
+                            <Text style={styles.badgeNowText}>NOW</Text>
+                          </View>
+                        )}
+                        {status === 'soon' && (
+                          <View style={styles.badgeSoon}>
+                            <Text style={styles.badgeSoonText}>SOON</Text>
+                          </View>
+                        )}
+                        {status === 'done' && (
+                          <View style={styles.badgeDone}>
+                            <Text style={styles.badgeDoneText}>DONE</Text>
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </View>
+
+                  <Text
+                    style={[styles.title, isGhost && styles.titleGhost]}
+                    numberOfLines={2}
+                  >
+                    {item.course_title}
+                  </Text>
+
+                  <Text style={[styles.time, isGhost && styles.timeGhost]}>
+                    {formatTime(item.start_time)} – {formatTime(item.end_time)}
+                  </Text>
+
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaIcon}>📍</Text>
                     <Text
+                      style={[styles.metaText, isGhost && styles.metaTextGhost]}
+                      numberOfLines={1}
+                    >
+                      {item.room_name || 'Room not assigned'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaIcon}>👤</Text>
+                    <Text
+                      style={[styles.metaText, isGhost && styles.metaTextGhost]}
+                      numberOfLines={1}
+                    >
+                      {item.professor_name || 'Professor not assigned'}
+                    </Text>
+                  </View>
+
+                  {isGhost && (
+                    <View style={styles.reasonChip}>
+                      <Text style={styles.reasonChipIcon}>📋</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.reasonChipTitle}>Why is this cancelled?</Text>
+                        <Text style={styles.reasonChipText} numberOfLines={4}>
+                          {buildCancelReason(item.ghostReport)}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {isGhost && !!item.ghostReport?.notes && (
+                    <View style={styles.notesBox}>
+                      <Text style={styles.notesLabel}>NOTE FROM PROFESSOR</Text>
+                      <Text style={styles.notesText} numberOfLines={4}>
+                        "{item.ghostReport.notes}"
+                      </Text>
+                    </View>
+                  )}
+
+                  {live && (
+                    <View
                       style={[
-                        styles.statusHeadline,
-                        { color: stateAccent(live.roomState) },
+                        styles.statusBlock,
+                        {
+                          borderLeftColor: stateAccent(live.roomState),
+                          backgroundColor: stateAccent(live.roomState) + '14',
+                        },
                       ]}
                     >
-                      {live.icon}  {live.headline}
-                    </Text>
-                    <Text style={styles.statusSubline}>{live.subline}</Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          </View>
-        )
-      }}
+                      <Text
+                        style={[
+                          styles.statusHeadline,
+                          { color: stateAccent(live.roomState) },
+                        ]}
+                      >
+                        {live.icon}  {live.headline}
+                      </Text>
+                      <Text style={styles.statusSubline}>{live.subline}</Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            </View>
+          )
+        }}
 
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          tintColor="#8B0000"
-        />
-      }
-    />
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#8B0000"
+          />
+        }
+      />
+
+      {/* ============================================================
+          CLASS DETAIL MODAL
+          ============================================================ */}
+      <Modal
+        visible={!!detailClass}
+        transparent
+        animationType="slide"
+        onRequestClose={closeDetail}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeDetail}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            <View style={styles.modalGrabber} />
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {detailClass &&
+                (() => {
+                  const live = getLiveStatus(detailClass, nowMin)
+                  const isGhost = !!detailClass.ghostReport
+                  const isOnline = isOnlineRoom(detailClass.room_name)
+                  const accent = live ? stateAccent(live.roomState) : '#9CA3AF'
+                  const dayFull =
+                    DAY_LABELS[detailClass.day] || detailClass.day || ''
+
+                  const canViewRoute = !isGhost && !isOnline
+
+                  return (
+                    <>
+                      {/* HEADER */}
+                      <View style={styles.modalHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
+                          <Text style={styles.modalSubject}>
+                            {detailClass.subject_code}
+                          </Text>
+                          <Text style={styles.modalTitle} numberOfLines={2}>
+                            {detailClass.course_title}
+                          </Text>
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={closeDetail}
+                          style={styles.modalCloseBtn}
+                        >
+                          <Text style={styles.modalCloseText}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* BADGES */}
+                      <View style={styles.modalBadgesRow}>
+                        {isGhost ? (
+                          <View
+                            style={[styles.modalBadge, styles.modalBadgeCancelled]}
+                          >
+                            <Text
+                              style={[
+                                styles.modalBadgeText,
+                                styles.modalBadgeTextCancelled,
+                              ]}
+                            >
+                              ! CANCELLED
+                            </Text>
+                          </View>
+                        ) : (
+                          <View
+                            style={[
+                              styles.modalBadge,
+                              isOnline
+                                ? styles.modalBadgeOnline
+                                : styles.modalBadgeF2F,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.modalBadgeText,
+                                isOnline
+                                  ? styles.modalBadgeTextOnline
+                                  : styles.modalBadgeTextF2F,
+                              ]}
+                            >
+                              {isOnline
+                                ? '🌐 ONLINE'
+                                : '● FACE-TO-FACE'}
+                            </Text>
+                          </View>
+                        )}
+
+                        {live && (
+                          <View style={styles.modalStatusPill}>
+                            <Text
+                              style={[
+                                styles.modalStatusPillText,
+                                { color: accent },
+                              ]}
+                            >
+                              ● {live.headline}
+                            </Text>
+                          </View>
+                        )}
+
+                        {!!dayFull && (
+                          <View style={styles.modalDayPill}>
+                            <Text style={styles.modalDayPillText}>
+                              {dayFull}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* INFO GRID */}
+                      <View style={styles.modalGrid}>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>PROFESSOR</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {detailClass.professor_name || '—'}
+                          </Text>
+                        </View>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>ROOM</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {isOnline
+                              ? 'Online'
+                              : detailClass.room_name || '—'}
+                          </Text>
+                        </View>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>START</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {formatTime(detailClass.start_time)}
+                          </Text>
+                        </View>
+                        <View style={styles.modalGridItem}>
+                          <Text style={styles.modalGridLabel}>END</Text>
+                          <Text
+                            style={styles.modalGridValue}
+                            numberOfLines={1}
+                          >
+                            {formatTime(detailClass.end_time)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* UNIFIED STATUS BLOCK — cancellation reason folded in */}
+                      {live && (
+                        <View
+                          style={[
+                            styles.modalLiveBlock,
+                            {
+                              borderLeftColor: accent,
+                              backgroundColor: accent + '14',
+                            },
+                          ]}
+                        >
+                          <View style={styles.modalLiveHeader}>
+                            <Text
+                              style={[
+                                styles.modalLiveHeadline,
+                                { color: accent },
+                              ]}
+                            >
+                              {isGhost
+                                ? '⚠  CLASS CANCELLED'
+                                : `${live.icon}  ${live.headline}`}
+                            </Text>
+                            {!isGhost && detailClass.liveSession?.scanned_at && (
+                              <Text
+                                style={[
+                                  styles.modalLiveTime,
+                                  { color: accent },
+                                ]}
+                              >
+                                {formatVerifiedTime(
+                                  detailClass.liveSession.scanned_at
+                                )}
+                              </Text>
+                            )}
+                          </View>
+
+                          <Text style={styles.modalLiveSubline}>
+                            {isGhost
+                              ? buildCancelReason(detailClass.ghostReport)
+                              : live.subline}
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* PROFESSOR NOTE */}
+                      {isGhost && !!detailClass.ghostReport?.notes && (
+                        <View style={styles.modalNotesBox}>
+                          <Text style={styles.modalNotesLabel}>
+                            NOTE FROM PROFESSOR
+                          </Text>
+                          <Text style={styles.modalNotesText}>
+                            "{detailClass.ghostReport.notes}"
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* ACTIONS */}
+                      <View style={styles.modalActions}>
+                        {canViewRoute && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={() => openMapForRoom(detailClass.room_name)}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>
+                              ↗ View Route to Room
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        <TouchableOpacity
+                          style={
+                            canViewRoute
+                              ? styles.modalSecondaryBtn
+                              : styles.modalPrimaryBtn
+                          }
+                          onPress={closeDetail}
+                        >
+                          <Text
+                            style={
+                              canViewRoute
+                                ? styles.modalSecondaryBtnText
+                                : styles.modalPrimaryBtnText
+                            }
+                          >
+                            Close
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )
+                })()}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
   )
 }
 
@@ -1119,6 +1513,7 @@ const styles = StyleSheet.create({
   },
   cardToday: { borderColor: '#F3C6C6', shadowColor: '#8B0000', shadowOpacity: 0.08 },
   cardOnline: { opacity: 0.9 },
+  cardGhost: { opacity: 0.94, borderColor: '#F5C2C0', borderStyle: 'dashed' },
   cardAccent: { width: 4 },
   cardBody: { flex: 1, padding: 14 },
 
@@ -1128,11 +1523,66 @@ const styles = StyleSheet.create({
   },
   subject: { fontSize: 13, fontWeight: '800', color: '#8B0000', letterSpacing: 0.3 },
   title: { fontSize: 15, fontWeight: '600', color: '#1A1A1A', lineHeight: 20, marginBottom: 8 },
+  titleGhost: { color: '#6B7280', textDecorationLine: 'line-through' },
   time: { fontSize: 13, fontWeight: '500', color: '#4B5563', marginBottom: 8 },
+  timeGhost: { color: '#9CA3AF', textDecorationLine: 'line-through' },
 
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
   metaIcon: { fontSize: 12, marginRight: 6, width: 16 },
   metaText: { fontSize: 12, color: '#6B7280', flex: 1 },
+  metaTextGhost: { color: '#9CA3AF' },
+
+  reasonChip: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#FDECEC',
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#B00020',
+  },
+  reasonChipIcon: { fontSize: 16, marginTop: 1 },
+  reasonChipTitle: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    color: '#7A0014',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  reasonChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#7A0014',
+    lineHeight: 18,
+  },
+
+  notesBox: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFF8F0',
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#C77700',
+  },
+  notesLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: '#8A4B00',
+    marginBottom: 3,
+    textTransform: 'uppercase',
+  },
+  notesText: {
+    fontSize: 12,
+    color: '#5A3200',
+    fontStyle: 'italic',
+    lineHeight: 17,
+  },
 
   statusBlock: {
     marginTop: 12, paddingVertical: 12, paddingHorizontal: 14,
@@ -1147,6 +1597,239 @@ const styles = StyleSheet.create({
   badgeSoonText: { color: '#D97706', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
   badgeDone: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   badgeDoneText: { color: '#9CA3AF', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  badgeCancelled: { backgroundColor: '#FDECEC', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  badgeCancelledText: { color: '#B00020', fontSize: 10, fontWeight: '900', letterSpacing: 0.6 },
+
+  // ============================================================
+  // MODAL
+  // ============================================================
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 8,
+    maxHeight: '92%',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 20,
+  },
+  modalScrollContent: {
+    paddingHorizontal: 22,
+    paddingBottom: 48,
+  },
+  modalGrabber: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#D1D5DB',
+    marginBottom: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+    gap: 12,
+  },
+  modalEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    color: '#8B0000',
+    marginBottom: 4,
+  },
+  modalSubject: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#1A1A1A',
+    letterSpacing: -0.4,
+  },
+  modalTitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginTop: 4,
+    lineHeight: 19,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F5F5F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    fontSize: 15,
+    color: '#6B7280',
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+
+  modalBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  modalBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  modalBadgeF2F: { backgroundColor: '#FEF3C7' },
+  modalBadgeOnline: { backgroundColor: '#DBEAFE' },
+  modalBadgeCancelled: { backgroundColor: '#FDECEC' },
+  modalBadgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.4 },
+  modalBadgeTextF2F: { color: '#C77700' },
+  modalBadgeTextOnline: { color: '#1E88E5' },
+  modalBadgeTextCancelled: { color: '#B00020' },
+  modalStatusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F7',
+  },
+  modalStatusPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  modalDayPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F7',
+  },
+  modalDayPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    color: '#4B5563',
+  },
+
+  modalGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: '#F7F5F2',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    gap: 4,
+  },
+  modalGridItem: { width: '50%', paddingVertical: 6 },
+  modalGridLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#9A9A9E',
+    marginBottom: 3,
+  },
+  modalGridValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1A1A1A',
+  },
+
+  modalLiveBlock: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderLeftWidth: 4,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  modalLiveHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  modalLiveHeadline: { fontSize: 13, fontWeight: '900', letterSpacing: 0.3 },
+  modalLiveTime: { fontSize: 11, fontWeight: '800' },
+  modalLiveSubline: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '500',
+    lineHeight: 17,
+  },
+
+  modalNotesBox: {
+    backgroundColor: '#FFF8F0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#C77700',
+  },
+  modalNotesLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#8A4B00',
+    marginBottom: 6,
+  },
+  modalNotesText: {
+    fontSize: 12,
+    color: '#5A3200',
+    fontStyle: 'italic',
+    lineHeight: 17,
+  },
+
+  modalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 4,
+  },
+  modalPrimaryBtn: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 140,
+    backgroundColor: '#8B0000',
+    paddingVertical: 15,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#8B0000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  modalPrimaryBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  modalSecondaryBtn: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 110,
+    backgroundColor: '#F5F5F7',
+    paddingVertical: 15,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalSecondaryBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
 })
 
 export default StudentScheduleScreen

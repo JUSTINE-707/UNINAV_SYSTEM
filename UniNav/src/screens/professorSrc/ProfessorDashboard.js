@@ -8,6 +8,8 @@ import {
   RefreshControl,
   Alert,
   StatusBar,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../services/supabase';
@@ -32,6 +34,7 @@ const DAY_LABELS = {
 };
 
 const TODAY_PREVIEW_LIMIT = 3;
+const REPORTED_BANNER_DURATION = 6000;
 
 const CAUSE_LABELS = {
   professor: 'You could not attend',
@@ -53,8 +56,6 @@ const REASON_LABELS = {
   moved_online: 'Moved Online',
   other: 'Other',
 };
-
-const REPORTED_BANNER_DURATION = 6000;
 
 // ============================================================
 // HELPERS
@@ -122,12 +123,13 @@ const getGreeting = () => {
 // ------------------------------------------------------------
 // CLASS STATUS
 //
-//   upcoming    — before the class window
-//   starts_now  — in the window, professor hasn't scanned yet  (amber)
-//   ongoing     — in the window, professor has scanned          (green)
-//   missed      — window passed with NO scan                    (red)
-//   completed   — window passed WITH a scan                     (grey)
-//   ghost       — reported as cancelled / absent                (grey)
+//   upcoming     — before the class window
+//   starts_now   — in the window, professor hasn't scanned yet  (amber)
+//   ongoing      — in the window, professor has scanned          (green)
+//   ended_early  — professor ended the class before its end time (deep amber)
+//   missed       — window passed with NO scan                    (red)
+//   completed    — window passed WITH a scan                     (grey)
+//   ghost        — reported as cancelled / absent                (grey)
 // ------------------------------------------------------------
 
 const getProfessorClassStatus = (cls, nowMin) => {
@@ -138,6 +140,7 @@ const getProfessorClassStatus = (cls, nowMin) => {
   if (start === null || end === null) return 'unknown';
 
   const hasSession = !!cls.liveSession;
+  const endedEarly = !!cls.liveSession?.ended_at;
 
   // Window already ended
   if (nowMin > end) {
@@ -146,6 +149,7 @@ const getProfessorClassStatus = (cls, nowMin) => {
 
   // Window in progress
   if (nowMin >= start && nowMin <= end) {
+    if (hasSession && endedEarly) return 'ended_early';
     return hasSession ? 'ongoing' : 'starts_now';
   }
 
@@ -162,6 +166,8 @@ const stateAccent = (state) => {
     case 'upcoming':
     case 'vacant':
       return '#D97706'; // amber
+    case 'ended_early':
+      return '#C77700'; // deep amber — ended but not a problem
     case 'missed':
       return '#B00020'; // red — problem state
     case 'online':
@@ -182,11 +188,97 @@ const getInlineStatusLabel = (status, cls) => {
     return 'REPORTED';
   }
   if (status === 'ongoing') return 'IN PROGRESS';
+  if (status === 'ended_early') return 'ENDED EARLY';
   if (status === 'starts_now') return 'STARTS NOW';
   if (status === 'upcoming') return 'UPCOMING';
   if (status === 'completed') return 'COMPLETED';
   if (status === 'missed') return 'MISSED · NO CHECK-IN';
   return '';
+};
+
+// ------------------------------------------------------------
+// Which actions apply to a class right now?
+// ------------------------------------------------------------
+const getAvailableActions = (cls, nowMin) => {
+  if (cls.ghostReport) {
+    return {
+      canScan: false,
+      canNavigate: false,
+      canEndEarly: false,
+      canReportGhost: false,
+    };
+  }
+
+  if (cls.isOnline) {
+    return {
+      canScan: false,
+      canNavigate: false,
+      canEndEarly: false,
+      canReportGhost: true,
+    };
+  }
+
+  const start = timeToMinutes(cls.start_time);
+  const end = timeToMinutes(cls.end_time);
+
+  if (start === null || end === null) {
+    return {
+      canScan: false,
+      canNavigate: true,
+      canEndEarly: false,
+      canReportGhost: true,
+    };
+  }
+
+  const hasSession = !!cls.liveSession;
+  const endedEarly = !!cls.liveSession?.ended_at;
+
+  // Class window already passed
+  if (nowMin > end) {
+    return {
+      canScan: false,
+      canNavigate: false,
+      canEndEarly: false,
+      canReportGhost: !hasSession,
+    };
+  }
+
+  // Before class starts
+  if (nowMin < start) {
+    return {
+      canScan: true,
+      canNavigate: true,
+      canEndEarly: false,
+      canReportGhost: true,
+    };
+  }
+
+  // Inside class window
+  if (hasSession && !endedEarly) {
+    return {
+      canScan: false,
+      canNavigate: true,
+      canEndEarly: true,
+      canReportGhost: false,
+    };
+  }
+
+  if (hasSession && endedEarly) {
+    return {
+      canScan: false,
+      canNavigate: true,
+      canEndEarly: false,
+      canReportGhost: false,
+    };
+  }
+
+  // Inside window, no session yet
+  return {
+    canScan: true,
+    canNavigate: true,
+    canEndEarly: false,
+    canReportGhost: true,
+  };
 };
 
 // ============================================================
@@ -207,6 +299,9 @@ const ProfessorDashboard = ({ navigation }) => {
   const [showReportedBanner, setShowReportedBanner] = useState(false);
   const bannerShownRef = useRef(false);
   const bannerTimerRef = useRef(null);
+
+  // Class detail modal
+  const [detailClass, setDetailClass] = useState(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
@@ -239,7 +334,6 @@ const ProfessorDashboard = ({ navigation }) => {
         return;
       }
 
-      // ---- 1. Faculty profile ----
       const { data: profProfile } = await supabase
         .from('faculty')
         .select('employee_id, program, college')
@@ -257,11 +351,9 @@ const ProfessorDashboard = ({ navigation }) => {
         professor_name, professor_id, employee_id
       `;
 
-      // ---- 2. Schedules ----
       let scheduleData = [];
       let scheduleErr = null;
 
-      // 2a: professor_id
       {
         const { data, error } = await supabase
           .from('schedules')
@@ -274,7 +366,6 @@ const ProfessorDashboard = ({ navigation }) => {
         else scheduleData = data || [];
       }
 
-      // 2b: employee_id
       if (
         !scheduleErr &&
         scheduleData.length === 0 &&
@@ -291,7 +382,6 @@ const ProfessorDashboard = ({ navigation }) => {
         else scheduleData = data || [];
       }
 
-      // 2c: name match
       if (
         !scheduleErr &&
         scheduleData.length === 0 &&
@@ -325,7 +415,6 @@ const ProfessorDashboard = ({ navigation }) => {
 
       if (scheduleErr) throw scheduleErr;
 
-      // ---- 3. Ghost reports ----
       const { data: ghostData, error: ghostErr } = await supabase
         .from('ghost_reports')
         .select(
@@ -341,7 +430,6 @@ const ProfessorDashboard = ({ navigation }) => {
         ghostMap[r.schedule_id] = r;
       });
 
-      // ---- 4. Room sessions (check-ins) ----
       const scheduleIds = (scheduleData || []).map((s) => s.id);
       const sessionMap = {};
 
@@ -353,7 +441,7 @@ const ProfessorDashboard = ({ navigation }) => {
 
         const { data: sessionData, error: sessionErr } = await supabase
           .from('room_sessions')
-          .select('id, schedule_id, scanned_at, class_type, status')
+          .select('id, schedule_id, scanned_at, ended_at, class_type, status')
           .eq('faculty_id', user.id)
           .in('schedule_id', scheduleIds)
           .gte('scanned_at', startOfDay.toISOString())
@@ -371,7 +459,6 @@ const ProfessorDashboard = ({ navigation }) => {
         }
       }
 
-      // ---- 5. Merge ----
       const classes = (scheduleData || []).map((c) => ({
         ...c,
         isOnline: isOnlineRoom(c.room_name),
@@ -381,10 +468,10 @@ const ProfessorDashboard = ({ navigation }) => {
 
       setTodayClasses(classes);
 
-      // ---- 6. Next class ----
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
       const upcoming = classes.find((c) => {
         if (c.ghostReport) return false;
+        if (c.liveSession?.ended_at) return false; // already ended early
         const end = timeToMinutes(c.end_time);
         return end !== null && nowMinutes < end;
       });
@@ -403,7 +490,6 @@ const ProfessorDashboard = ({ navigation }) => {
         setNextClass(upcoming);
       }
 
-      // ---- 7. Reported banner ----
       const reportedCount = classes.filter((c) => c.ghostReport).length;
 
       if (reportedCount > 0 && !bannerShownRef.current) {
@@ -439,8 +525,11 @@ const ProfessorDashboard = ({ navigation }) => {
   // ACTIONS
   // ============================================================
 
+  const closeDetail = () => setDetailClass(null);
+
   const handleScanQR = (schedule) => {
-    if (schedule.ghostReport) return;
+    if (!schedule || schedule.ghostReport) return;
+    closeDetail();
     navigation.navigate('QRScanner', {
       scheduleId: schedule.id,
       roomId: schedule.room_id,
@@ -454,24 +543,44 @@ const ProfessorDashboard = ({ navigation }) => {
   };
 
   const handleNavigate = (schedule) => {
-    if (schedule.ghostReport) return;
+    if (!schedule || schedule.ghostReport) return;
     if (schedule.isOnline) {
-      Alert.alert(
-        'Online Class',
-        'This class is conducted online. No navigation needed.'
-      );
+      Alert.alert('Online Class', 'This class is conducted online. No navigation needed.');
       return;
     }
+    closeDetail();
     navigation.navigate('Map', { roomName: schedule.room_name });
   };
 
   const handleReportGhost = (schedule) => {
+    if (!schedule) return;
+    closeDetail();
     navigation.navigate('ReportGhost', {
       scheduleId: schedule.id,
       subjectCode: schedule.subject_code,
       section: schedule.section,
       roomName: schedule.room_name,
       courseTitle: schedule.course_title,
+      startTime: schedule.start_time,
+      endTime: schedule.end_time,
+    });
+  };
+
+  const handleEndClassEarly = (schedule) => {
+    if (!schedule?.liveSession?.id) {
+      Alert.alert(
+        'No active session',
+        'You need to scan the room QR first before ending the class.'
+      );
+      return;
+    }
+    closeDetail();
+    navigation.navigate('EndClassEarly', {
+      scheduleId: schedule.id,
+      sessionId: schedule.liveSession.id,
+      subjectCode: schedule.subject_code,
+      section: schedule.section,
+      roomName: schedule.room_name,
       startTime: schedule.start_time,
       endTime: schedule.end_time,
     });
@@ -496,69 +605,12 @@ const ProfessorDashboard = ({ navigation }) => {
     handleReportGhost(target);
   };
 
-  const showGhostDetails = (cls) => {
-    const r = cls.ghostReport;
-    if (!r) return;
-
-    const reasonLabel =
-      REASON_LABELS[r.reason] || REASON_LABELS[r.excused_reason] || r.reason;
-    const causeLabel = CAUSE_LABELS[r.cause] || r.cause;
-
-    const lines = [
-      `Cause: ${causeLabel}`,
-      `Reason: ${reasonLabel}`,
-      r.is_excused === true
-        ? 'Status: EXCUSED — your record is protected.'
-        : r.is_excused === false
-        ? 'Status: UNEXCUSED — your Chair will review this.'
-        : '',
-      r.notes ? `\nNotes: ${r.notes}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    Alert.alert(
-      `Reported Absent — ${cls.subject_code}`,
-      lines,
-      [{ text: 'Close', style: 'cancel' }]
-    );
-  };
-
-  const handleClassTap = (cls) => {
-    if (cls.ghostReport) {
-      showGhostDetails(cls);
-      return;
-    }
-    if (cls.isOnline) {
-      Alert.alert(
-        `🌐 ${cls.subject_code} · ${cls.section}`,
-        `${cls.course_title}\n\nThis is an online class. Join through your virtual meeting platform.`,
-        [
-          { text: 'Close', style: 'cancel' },
-          { text: 'Report Ghost', onPress: () => handleReportGhost(cls) },
-        ]
-      );
-      return;
-    }
-    Alert.alert(
-      `${cls.subject_code} · ${cls.section}`,
-      `${cls.course_title}\nRoom: ${cls.room_name}\nTime: ${formatTime(
-        cls.start_time
-      )} – ${formatTime(cls.end_time)}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Navigate', onPress: () => handleNavigate(cls) },
-        { text: 'Scan QR', onPress: () => handleScanQR(cls) },
-      ]
-    );
-  };
-
   const openFullSchedule = () => {
     navigation.navigate('FacultySchedule');
   };
 
   // ============================================================
-  // LOADING SKELETON
+  // LOADING
   // ============================================================
 
   if (loading) {
@@ -575,8 +627,11 @@ const ProfessorDashboard = ({ navigation }) => {
     (c) => getProfessorClassStatus(c, nowMin) === 'missed'
   ).length;
   const remainingClasses = todayClasses.filter((c) => {
+    if (c.ghostReport) return false;
+    // Ended early → no longer "remaining"
+    if (c.liveSession?.ended_at) return false;
     const end = timeToMinutes(c.end_time);
-    return end !== null && end > nowMin && !c.ghostReport;
+    return end !== null && end > nowMin;
   });
 
   const nextStatus = nextClass
@@ -598,32 +653,76 @@ const ProfessorDashboard = ({ navigation }) => {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#FFFFFF"
+          />
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* HEADER */}
+        {/* ==================== HERO HEADER ==================== */}
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerEyebrow}>FACULTY PORTAL</Text>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {getGreeting()}
-            </Text>
-            <Text style={styles.headerSubtitle} numberOfLines={1}>
-              {profile?.program ? `${profile.program} · ` : ''}
-              {DAY_LABELS[DAYS[now.getDay()]] || DAYS[now.getDay()]}
-              {semester ? ` · ${semester.name}` : ''}
-            </Text>
+          <View style={styles.headerTop}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.headerEyebrow}>FACULTY PORTAL</Text>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {getGreeting()}
+              </Text>
+              <Text style={styles.headerSubtitle} numberOfLines={1}>
+                {profile?.program ? `${profile.program} · ` : ''}
+                {DAY_LABELS[DAYS[now.getDay()]] || DAYS[now.getDay()]}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Login')}
+              style={styles.logoutButton}
+            >
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Login')}
-            style={styles.logoutButton}
-          >
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
+          {semester && (
+            <View style={styles.semesterChip}>
+              <Text style={styles.semesterChipDot}>●</Text>
+              <Text style={styles.semesterChipText}>{semester.name}</Text>
+            </View>
+          )}
         </View>
 
+        {/* ==================== SUMMARY ==================== */}
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>{todayClasses.length}</Text>
+            <Text style={styles.summaryLabel}>Classes</Text>
+          </View>
+
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>{remainingClasses.length}</Text>
+            <Text style={styles.summaryLabel}>Remaining</Text>
+          </View>
+
+          {reportedCount > 0 && (
+            <View style={styles.summaryCard}>
+              <Text style={[styles.summaryValue, { color: '#9CA3AF' }]}>
+                {reportedCount}
+              </Text>
+              <Text style={styles.summaryLabel}>Reported</Text>
+            </View>
+          )}
+
+          {missedCount > 0 && (
+            <View style={styles.summaryCard}>
+              <Text style={[styles.summaryValue, { color: '#B00020' }]}>
+                {missedCount}
+              </Text>
+              <Text style={styles.summaryLabel}>Missed</Text>
+            </View>
+          )}
+        </View>
+
+        {/* ==================== BANNERS ==================== */}
         {showReportedBanner && reportedCount > 0 && (
           <View style={styles.reportedBanner}>
             <Text style={styles.reportedBannerIcon}>✓</Text>
@@ -655,38 +754,7 @@ const ProfessorDashboard = ({ navigation }) => {
           </View>
         )}
 
-        {/* SUMMARY CARDS */}
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{todayClasses.length}</Text>
-            <Text style={styles.summaryLabel}>Classes today</Text>
-          </View>
-
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{remainingClasses.length}</Text>
-            <Text style={styles.summaryLabel}>Remaining</Text>
-          </View>
-
-          {reportedCount > 0 && (
-            <View style={styles.summaryCard}>
-              <Text style={[styles.summaryValue, { color: '#9CA3AF' }]}>
-                {reportedCount}
-              </Text>
-              <Text style={styles.summaryLabel}>Reported</Text>
-            </View>
-          )}
-
-          {missedCount > 0 && (
-            <View style={styles.summaryCard}>
-              <Text style={[styles.summaryValue, { color: '#B00020' }]}>
-                {missedCount}
-              </Text>
-              <Text style={styles.summaryLabel}>Missed</Text>
-            </View>
-          )}
-        </View>
-
-        {/* NEXT CLASS CARD */}
+        {/* ==================== NEXT CLASS CARD ==================== */}
         {nextClass && nextStatus ? (
           nextStatus === 'ghost' ? (
             <View style={styles.nextClassCard}>
@@ -761,7 +829,7 @@ const ProfessorDashboard = ({ navigation }) => {
 
               <TouchableOpacity
                 style={styles.scanButton}
-                onPress={() => showGhostDetails(nextClass)}
+                onPress={() => setDetailClass(nextClass)}
               >
                 <Text style={styles.scanButtonIcon}>ⓘ</Text>
                 <Text style={styles.scanButtonText}>View Report Details</Text>
@@ -781,6 +849,8 @@ const ProfessorDashboard = ({ navigation }) => {
                     ? 'ONLINE NOW'
                     : nextStatus === 'ongoing'
                     ? 'IN PROGRESS'
+                    : nextStatus === 'ended_early'
+                    ? 'ENDED EARLY'
                     : nextStatus === 'starts_now'
                     ? 'STARTS NOW'
                     : 'UP NEXT'}
@@ -845,6 +915,8 @@ const ProfessorDashboard = ({ navigation }) => {
                     ? '🌐  ONLINE CLASS'
                     : nextStatus === 'ongoing'
                     ? '●  IN PROGRESS'
+                    : nextStatus === 'ended_early'
+                    ? '⏹  ENDED EARLY'
                     : nextStatus === 'starts_now'
                     ? '⏳  STARTS NOW'
                     : '🕐  NOT STARTED YET'}
@@ -858,33 +930,112 @@ const ProfessorDashboard = ({ navigation }) => {
                           nextClass.liveSession.scanned_at
                         )}`
                       : 'Checked in — room verified'
+                    : nextStatus === 'ended_early'
+                    ? nextClass.liveSession?.ended_at
+                      ? `You ended this class at ${formatVerifiedTime(
+                          nextClass.liveSession.ended_at
+                        )}`
+                      : 'You ended this class early'
                     : nextStatus === 'starts_now'
                     ? 'Scan the room QR to begin this class'
                     : `Starts at ${formatTime(nextClass.start_time)}`}
                 </Text>
               </View>
 
-              {nextClass.isOnline ? (
-                <TouchableOpacity
-                  style={styles.scanButton}
-                  onPress={() => handleReportGhost(nextClass)}
-                >
-                  <Text style={styles.scanButtonIcon}>⚠</Text>
-                  <Text style={styles.scanButtonText}>Report Ghost</Text>
-                </TouchableOpacity>
-              ) : nextStatus === 'starts_now' ? (
-                <>
-                  <TouchableOpacity
-                    style={styles.scanButton}
-                    onPress={() => handleScanQR(nextClass)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.scanButtonIcon}>▣</Text>
-                    <Text style={styles.scanButtonText}>
-                      Scan QR to Begin Class
-                    </Text>
-                  </TouchableOpacity>
+              {/* PRIMARY ACTION — time-aware */}
+              {(() => {
+                const acts = getAvailableActions(nextClass, nowMin);
 
+                if (nextClass.isOnline) {
+                  return (
+                    <TouchableOpacity
+                      style={styles.scanButton}
+                      onPress={() => handleReportGhost(nextClass)}
+                    >
+                      <Text style={styles.scanButtonIcon}>⚠</Text>
+                      <Text style={styles.scanButtonText}>Report Ghost</Text>
+                    </TouchableOpacity>
+                  );
+                }
+
+                if (acts.canEndEarly) {
+                  return (
+                    <>
+                      <TouchableOpacity
+                        style={styles.endEarlyButton}
+                        onPress={() => handleEndClassEarly(nextClass)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.endEarlyButtonIcon}>⏹</Text>
+                        <Text style={styles.endEarlyButtonText}>
+                          End Class Early
+                        </Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.secondaryActions}>
+                        <TouchableOpacity
+                          style={styles.secondaryButton}
+                          onPress={() => handleNavigate(nextClass)}
+                        >
+                          <Text style={styles.secondaryButtonText}>
+                            ↗ Navigate
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.secondaryButton}
+                          onPress={() => setDetailClass(nextClass)}
+                        >
+                          <Text style={styles.secondaryButtonText}>
+                            ⓘ Details
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  );
+                }
+
+                if (acts.canScan) {
+                  return (
+                    <>
+                      <TouchableOpacity
+                        style={styles.scanButton}
+                        onPress={() => handleScanQR(nextClass)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.scanButtonIcon}>▣</Text>
+                        <Text style={styles.scanButtonText}>
+                          {nextStatus === 'upcoming'
+                            ? 'Scan QR to Verify Room'
+                            : 'Scan QR to Begin Class'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.secondaryActions}>
+                        <TouchableOpacity
+                          style={styles.secondaryButton}
+                          onPress={() => handleNavigate(nextClass)}
+                        >
+                          <Text style={styles.secondaryButtonText}>
+                            ↗ Navigate
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.secondaryButton}
+                          onPress={() => handleReportGhost(nextClass)}
+                        >
+                          <Text style={styles.secondaryButtonText}>
+                            ⚠ Report Ghost
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  );
+                }
+
+                // Fallback — ended early, completed, missed
+                return (
                   <View style={styles.secondaryActions}>
                     <TouchableOpacity
                       style={styles.secondaryButton}
@@ -895,65 +1046,13 @@ const ProfessorDashboard = ({ navigation }) => {
 
                     <TouchableOpacity
                       style={styles.secondaryButton}
-                      onPress={() => handleReportGhost(nextClass)}
+                      onPress={() => setDetailClass(nextClass)}
                     >
-                      <Text style={styles.secondaryButtonText}>
-                        ⚠ Report Ghost
-                      </Text>
+                      <Text style={styles.secondaryButtonText}>ⓘ Details</Text>
                     </TouchableOpacity>
                   </View>
-                </>
-              ) : nextStatus === 'upcoming' ? (
-                <>
-                  <TouchableOpacity
-                    style={styles.scanButton}
-                    onPress={() => handleScanQR(nextClass)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.scanButtonIcon}>▣</Text>
-                    <Text style={styles.scanButtonText}>
-                      Scan QR to Verify Room
-                    </Text>
-                  </TouchableOpacity>
-
-                  <View style={styles.secondaryActions}>
-                    <TouchableOpacity
-                      style={styles.secondaryButton}
-                      onPress={() => handleNavigate(nextClass)}
-                    >
-                      <Text style={styles.secondaryButtonText}>↗ Navigate</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.secondaryButton}
-                      onPress={() => handleReportGhost(nextClass)}
-                    >
-                      <Text style={styles.secondaryButtonText}>
-                        ⚠ Report Ghost
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : (
-                /* ongoing (checked in) or completed — no scan action needed */
-                <View style={styles.secondaryActions}>
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => handleNavigate(nextClass)}
-                  >
-                    <Text style={styles.secondaryButtonText}>↗ Navigate</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => handleReportGhost(nextClass)}
-                  >
-                    <Text style={styles.secondaryButtonText}>
-                      ⚠ Report Ghost
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+                );
+              })()}
             </View>
           )
         ) : (
@@ -970,7 +1069,7 @@ const ProfessorDashboard = ({ navigation }) => {
           </View>
         )}
 
-        {/* TODAY'S CLASSES */}
+        {/* ==================== TODAY'S CLASSES ==================== */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Today's Classes</Text>
@@ -1002,7 +1101,7 @@ const ProfessorDashboard = ({ navigation }) => {
                       status === 'missed' && styles.classCardMissed,
                     ]}
                     activeOpacity={0.85}
-                    onPress={() => handleClassTap(cls)}
+                    onPress={() => setDetailClass(cls)}
                   >
                     <View
                       style={[styles.classAccent, { backgroundColor: accent }]}
@@ -1056,7 +1155,7 @@ const ProfessorDashboard = ({ navigation }) => {
           )}
         </View>
 
-        {/* QUICK ACTIONS */}
+        {/* ==================== QUICK ACTIONS ==================== */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
 
@@ -1093,14 +1192,334 @@ const ProfessorDashboard = ({ navigation }) => {
               onPress={handleQuickReportGhost}
             >
               <Text style={styles.quickIcon}>⚠️</Text>
-              <Text style={styles.quickLabel}>Report Ghost Class</Text>
+              <Text style={styles.quickLabel}>Report Ghost</Text>
               <Text style={styles.quickSub}>Cancelled class</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickCard}
+              onPress={() => navigation.navigate('RoomStatus')}
+            >
+              <Text style={styles.quickIcon}>🏛️</Text>
+              <Text style={styles.quickLabel}>Rooms</Text>
+              <Text style={styles.quickSub}>See what's free</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* ============================================================
+          CLASS DETAIL MODAL
+          ============================================================ */}
+      <Modal
+        visible={!!detailClass}
+        transparent
+        animationType="slide"
+        onRequestClose={closeDetail}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeDetail}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            <View style={styles.modalGrabber} />
+
+            {detailClass && (() => {
+              const status = getProfessorClassStatus(detailClass, nowMin);
+              const accent = stateAccent(status);
+              const isGhost = status === 'ghost';
+              const acts = getAvailableActions(detailClass, nowMin);
+
+              return (
+                <>
+                  {/* HEADER */}
+                  <View style={styles.modalHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
+                      <Text style={styles.modalSubject}>
+                        {detailClass.subject_code}
+                      </Text>
+                      <Text style={styles.modalTitle} numberOfLines={2}>
+                        {detailClass.course_title}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={closeDetail}
+                      style={styles.modalCloseBtn}
+                    >
+                      <Text style={styles.modalCloseText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* BADGES */}
+                  <View style={styles.modalBadgesRow}>
+                    {isGhost ? (
+                      <View
+                        style={[
+                          styles.modalBadge,
+                          detailClass.ghostReport.is_excused === true
+                            ? styles.modalBadgeExcused
+                            : detailClass.ghostReport.is_excused === false
+                            ? styles.modalBadgeUnexcused
+                            : styles.modalBadgeNeutral,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalBadgeText,
+                            detailClass.ghostReport.is_excused === true
+                              ? styles.modalBadgeTextExcused
+                              : detailClass.ghostReport.is_excused === false
+                              ? styles.modalBadgeTextUnexcused
+                              : styles.modalBadgeTextNeutral,
+                          ]}
+                        >
+                          {detailClass.ghostReport.is_excused === true
+                            ? '✓ REPORTED · EXCUSED'
+                            : detailClass.ghostReport.is_excused === false
+                            ? '! REPORTED · UNEXCUSED'
+                            : '● REPORTED'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View
+                        style={[
+                          styles.modalBadge,
+                          detailClass.isOnline
+                            ? styles.modalBadgeOnline
+                            : styles.modalBadgeF2F,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalBadgeText,
+                            detailClass.isOnline
+                              ? styles.modalBadgeTextOnline
+                              : styles.modalBadgeTextF2F,
+                          ]}
+                        >
+                          {detailClass.isOnline
+                            ? '🌐 ONLINE'
+                            : '● FACE-TO-FACE'}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={styles.modalStatusPill}>
+                      <Text
+                        style={[styles.modalStatusPillText, { color: accent }]}
+                      >
+                        ● {getInlineStatusLabel(status, detailClass)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* INFO GRID */}
+                  <View style={styles.modalGrid}>
+                    <View style={styles.modalGridItem}>
+                      <Text style={styles.modalGridLabel}>SECTION</Text>
+                      <Text style={styles.modalGridValue} numberOfLines={1}>
+                        {detailClass.section || '—'}
+                      </Text>
+                    </View>
+                    <View style={styles.modalGridItem}>
+                      <Text style={styles.modalGridLabel}>ROOM</Text>
+                      <Text style={styles.modalGridValue} numberOfLines={1}>
+                        {detailClass.isOnline
+                          ? 'Online'
+                          : detailClass.room_name || '—'}
+                      </Text>
+                    </View>
+                    <View style={styles.modalGridItem}>
+                      <Text style={styles.modalGridLabel}>START</Text>
+                      <Text style={styles.modalGridValue} numberOfLines={1}>
+                        {formatTime(detailClass.start_time)}
+                      </Text>
+                    </View>
+                    <View style={styles.modalGridItem}>
+                      <Text style={styles.modalGridLabel}>END</Text>
+                      <Text style={styles.modalGridValue} numberOfLines={1}>
+                        {formatTime(detailClass.end_time)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* LIVE STATUS BLOCK */}
+                  {(() => {
+                    let headline = '';
+                    let subline = '';
+
+                    if (isGhost) {
+                      headline = '⚠  REPORTED ABSENT';
+                      subline =
+                        detailClass.ghostReport.is_excused === true
+                          ? 'Your record is protected.'
+                          : 'Your Chair will review this.';
+                    } else if (status === 'ongoing') {
+                      headline = '●  IN PROGRESS';
+                      subline = 'You are checked in for this class.';
+                    } else if (status === 'ended_early') {
+                      headline = '⏹  ENDED EARLY';
+                      subline = detailClass.liveSession?.ended_at
+                        ? `You ended this class at ${formatVerifiedTime(
+                            detailClass.liveSession.ended_at
+                          )}`
+                        : 'You ended this class early.';
+                    } else if (status === 'starts_now') {
+                      headline = '⏳  STARTS NOW';
+                      subline = 'Scan the room QR to begin this class.';
+                    } else if (status === 'upcoming') {
+                      headline = '🕐  UPCOMING';
+                      subline = `Class starts at ${formatTime(
+                        detailClass.start_time
+                      )}.`;
+                    } else if (status === 'completed') {
+                      headline = '✓  COMPLETED';
+                      subline = 'Class has ended.';
+                    } else if (status === 'missed') {
+                      headline = '!  MISSED · NO CHECK-IN';
+                      subline = 'You did not scan in for this class.';
+                    }
+
+                    return (
+                      <View
+                        style={[
+                          styles.modalLiveBlock,
+                          {
+                            borderLeftColor: accent,
+                            backgroundColor: accent + '14',
+                          },
+                        ]}
+                      >
+                        <View style={styles.modalLiveHeader}>
+                          <Text
+                            style={[
+                              styles.modalLiveHeadline,
+                              { color: accent },
+                            ]}
+                          >
+                            {headline}
+                          </Text>
+                          {detailClass.liveSession?.scanned_at && (
+                            <Text
+                              style={[
+                                styles.modalLiveTime,
+                                { color: accent },
+                              ]}
+                            >
+                              {formatVerifiedTime(
+                                detailClass.liveSession.scanned_at
+                              )}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={styles.modalLiveSubline}>{subline}</Text>
+                      </View>
+                    );
+                  })()}
+
+                  {/* GHOST DETAILS */}
+                  {isGhost && (
+                    <View style={styles.modalGhostBox}>
+                      <Text style={styles.modalGhostLabel}>REPORT DETAILS</Text>
+                      <Text style={styles.modalGhostCause}>
+                        Cause:{' '}
+                        {CAUSE_LABELS[detailClass.ghostReport.cause] ||
+                          detailClass.ghostReport.cause}
+                      </Text>
+                      <Text style={styles.modalGhostReason}>
+                        Reason:{' '}
+                        {REASON_LABELS[detailClass.ghostReport.reason] ||
+                          REASON_LABELS[
+                            detailClass.ghostReport.excused_reason
+                          ] ||
+                          detailClass.ghostReport.reason}
+                      </Text>
+                      {!!detailClass.ghostReport.notes && (
+                        <Text style={styles.modalGhostNotes}>
+                          "{detailClass.ghostReport.notes}"
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* ACTIONS — time-aware */}
+                  {!isGhost && (
+                    <View style={styles.modalActions}>
+                      {acts.canNavigate && (
+                        <TouchableOpacity
+                          style={styles.modalSecondaryBtn}
+                          onPress={() => handleNavigate(detailClass)}
+                        >
+                          <Text style={styles.modalSecondaryBtnText}>
+                            ↗ Navigate
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {acts.canEndEarly && (
+                        <TouchableOpacity
+                          style={styles.modalEndEarlyBtn}
+                          onPress={() => handleEndClassEarly(detailClass)}
+                        >
+                          <Text style={styles.modalEndEarlyBtnText}>
+                            ⏹ End Class Early
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {acts.canScan && (
+                        <TouchableOpacity
+                          style={styles.modalPrimaryBtn}
+                          onPress={() => handleScanQR(detailClass)}
+                        >
+                          <Text style={styles.modalPrimaryBtnText}>
+                            ▣ Scan QR
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {acts.canReportGhost && (
+                        <TouchableOpacity
+                          style={styles.modalGhostLinkInline}
+                          onPress={() => handleReportGhost(detailClass)}
+                        >
+                          <Text style={styles.modalGhostLinkInlineText}>
+                            ⚠ Report this class as cancelled / not attended
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {!acts.canScan &&
+                        !acts.canEndEarly &&
+                        !acts.canReportGhost &&
+                        !acts.canNavigate && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={closeDetail}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>
+                              Close
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                    </View>
+                  )}
+
+                  {isGhost && (
+                    <TouchableOpacity
+                      style={styles.modalPrimaryBtn}
+                      onPress={closeDetail}
+                    >
+                      <Text style={styles.modalPrimaryBtnText}>Close</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              );
+            })()}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -1173,67 +1592,6 @@ const ProfessorDashboardSkeleton = () => (
           style={{ marginTop: 14 }}
         />
       </View>
-
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Skeleton width={140} height={18} radius={6} />
-          <Skeleton width={70} height={13} radius={4} />
-        </View>
-        {[1, 2, 3].map((i) => (
-          <View key={i} style={styles.classCard}>
-            <Skeleton width={4} height={72} radius={2} />
-            <View style={styles.classInfo}>
-              <Skeleton width={80} height={14} radius={4} />
-              <Skeleton
-                width="85%"
-                height={14}
-                radius={4}
-                style={{ marginTop: 6 }}
-              />
-              <Skeleton
-                width="60%"
-                height={12}
-                radius={4}
-                style={{ marginTop: 8 }}
-              />
-              <Skeleton
-                width="40%"
-                height={11}
-                radius={4}
-                style={{ marginTop: 10 }}
-              />
-            </View>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.section}>
-        <Skeleton
-          width={120}
-          height={18}
-          radius={6}
-          style={{ marginBottom: 12 }}
-        />
-        <View style={styles.quickGrid}>
-          {[1, 2, 3, 4].map((i) => (
-            <View key={i} style={styles.quickCard}>
-              <Skeleton width={24} height={24} radius={6} />
-              <Skeleton
-                width="70%"
-                height={13}
-                radius={4}
-                style={{ marginTop: 10 }}
-              />
-              <Skeleton
-                width="50%"
-                height={11}
-                radius={4}
-                style={{ marginTop: 6 }}
-              />
-            </View>
-          ))}
-        </View>
-      </View>
     </View>
   </View>
 );
@@ -1253,37 +1611,98 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
   scrollContent: { paddingBottom: 20 },
 
+  // ==================== HEADER ====================
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
-    paddingBottom: 24,
+    paddingBottom: 28,
     backgroundColor: '#8B0000',
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
   },
   headerEyebrow: {
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 1.2,
+    letterSpacing: 1.5,
     color: '#FFFFFF',
-    opacity: 0.75,
-    marginBottom: 4,
+    opacity: 0.7,
+    marginBottom: 6,
   },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.4,
+  },
   headerSubtitle: {
     fontSize: 13,
     color: '#FFFFFF',
     opacity: 0.85,
-    marginTop: 2,
+    marginTop: 4,
   },
   logoutButton: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   logoutText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
 
+  semesterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    gap: 6,
+  },
+  semesterChipDot: { fontSize: 8, color: '#7CFC9E' },
+  semesterChipText: {
+    fontSize: 11,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
+  // ==================== SUMMARY ====================
+  summaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    marginTop: -18,
+    marginBottom: 8,
+  },
+  summaryCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  summaryValue: { fontSize: 22, fontWeight: '900', color: '#1A1A1A' },
+  summaryLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+
+  // ==================== BANNERS ====================
   reportedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1291,16 +1710,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 14,
     backgroundColor: '#EAF6EC',
-    borderRadius: 12,
+    borderRadius: 14,
     borderLeftWidth: 4,
     borderLeftColor: '#059669',
     gap: 12,
   },
-  reportedBannerIcon: {
-    fontSize: 22,
-    color: '#059669',
-    fontWeight: '900',
-  },
+  reportedBannerIcon: { fontSize: 22, color: '#059669', fontWeight: '900' },
   reportedBannerTitle: {
     fontSize: 13,
     fontWeight: '800',
@@ -1313,7 +1728,6 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
 
-  // NEW: missed classes banner
   missedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1321,16 +1735,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 14,
     backgroundColor: '#FDECEC',
-    borderRadius: 12,
+    borderRadius: 14,
     borderLeftWidth: 4,
     borderLeftColor: '#B00020',
     gap: 12,
   },
-  missedBannerIcon: {
-    fontSize: 20,
-    color: '#B00020',
-    fontWeight: '900',
-  },
+  missedBannerIcon: { fontSize: 20, color: '#B00020', fontWeight: '900' },
   missedBannerTitle: {
     fontSize: 13,
     fontWeight: '800',
@@ -1344,78 +1754,50 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
 
-  summaryRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    marginTop: 16,
-  },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  summaryValue: { fontSize: 24, fontWeight: '800', color: '#1A1A1A' },
-  summaryLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#9CA3AF',
-    marginTop: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-
+  // ==================== NEXT CLASS ====================
   nextClassCard: {
     margin: 16,
     padding: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 22,
     shadowColor: '#000',
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
   nextClassHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
-  pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
+  pulseDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   nextClassEyebrow: {
     fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
+    fontWeight: '900',
+    letterSpacing: 1.4,
     color: '#6B7280',
   },
   nextClassSubject: {
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: '900',
     color: '#8B0000',
+    letterSpacing: -0.4,
   },
   nextClassTitle: {
     fontSize: 15,
     color: '#4B5563',
     marginTop: 4,
     marginBottom: 16,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   nextClassMeta: {
     flexDirection: 'row',
     backgroundColor: '#F5F5F7',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
   },
   metaItem: { flex: 1, alignItems: 'center' },
   metaDivider: { width: 1, backgroundColor: '#E5E7EB' },
@@ -1424,27 +1806,24 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.8,
     color: '#9CA3AF',
-    marginBottom: 2,
+    marginBottom: 3,
   },
-  metaValue: { fontSize: 12, fontWeight: '700', color: '#1A1A1A' },
+  metaValue: { fontSize: 12, fontWeight: '800', color: '#1A1A1A' },
 
   statusBlock: {
     marginTop: 4,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderLeftWidth: 4,
-    borderRadius: 10,
+    borderRadius: 12,
   },
-  statusHeadline: {
-    fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 0.4,
-  },
+  statusHeadline: { fontSize: 14, fontWeight: '900', letterSpacing: 0.4 },
   statusSubline: {
     fontSize: 12,
     color: '#4B5563',
     marginTop: 4,
     fontWeight: '500',
+    lineHeight: 17,
   },
 
   scanButton: {
@@ -1456,6 +1835,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginTop: 14,
     gap: 8,
+    shadowColor: '#8B0000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   scanButtonIcon: { fontSize: 18, color: '#FFFFFF' },
   scanButtonText: {
@@ -1464,6 +1848,27 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.3,
   },
+
+  endEarlyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF8F0',
+    borderWidth: 1.5,
+    borderColor: '#C77700',
+    paddingVertical: 15,
+    borderRadius: 14,
+    marginTop: 14,
+    gap: 8,
+  },
+  endEarlyButtonIcon: { fontSize: 16, color: '#C77700' },
+  endEarlyButtonText: {
+    color: '#C77700',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+
   secondaryActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
   secondaryButton: {
     flex: 1,
@@ -1474,14 +1879,15 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
 
+  // ==================== EMPTY ====================
   emptyCard: {
     margin: 16,
-    padding: 32,
+    padding: 36,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 22,
     alignItems: 'center',
   },
-  emptyIcon: { fontSize: 32, color: '#059669', marginBottom: 8 },
+  emptyIcon: { fontSize: 34, color: '#059669', marginBottom: 10 },
   emptyTitle: { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
   emptyText: {
     fontSize: 13,
@@ -1497,7 +1903,8 @@ const styles = StyleSheet.create({
   },
   emptyListText: { fontSize: 13, color: '#9CA3AF' },
 
-  section: { marginTop: 12, paddingHorizontal: 16 },
+  // ==================== SECTIONS ====================
+  section: { marginTop: 20, paddingHorizontal: 16 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1509,6 +1916,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#1A1A1A',
     marginBottom: 12,
+    letterSpacing: -0.2,
   },
   sectionLink: {
     fontSize: 13,
@@ -1517,10 +1925,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
+  // ==================== CLASS CARDS ====================
   classCard: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
     marginBottom: 10,
     overflow: 'hidden',
@@ -1539,9 +1948,9 @@ const styles = StyleSheet.create({
   classInfo: { flex: 1 },
   classSubject: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#8B0000',
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   classTitle: {
     fontSize: 14,
@@ -1555,11 +1964,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '500',
   },
-  liveInlineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
+  liveInlineRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   liveInlineDot: {
     width: 7,
     height: 7,
@@ -1583,32 +1988,275 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     gap: 6,
   },
-  moreText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#8B0000',
-  },
-  moreArrow: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#8B0000',
-  },
+  moreText: { fontSize: 13, fontWeight: '700', color: '#8B0000' },
+  moreArrow: { fontSize: 14, fontWeight: '800', color: '#8B0000' },
 
+  // ==================== QUICK ACTIONS ====================
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   quickCard: {
     width: '48%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 16,
     shadowColor: '#000',
     shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  quickIcon: { fontSize: 24, marginBottom: 8 },
+  quickIcon: { fontSize: 24, marginBottom: 10 },
   quickLabel: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
   quickSub: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+
+  // ==================== MODAL ====================
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 8,
+    paddingBottom: 32,
+    maxHeight: '88%',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 20,
+  },
+  modalGrabber: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#D1D5DB',
+    marginBottom: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+    gap: 12,
+  },
+  modalEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    color: '#8B0000',
+    marginBottom: 4,
+  },
+  modalSubject: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#1A1A1A',
+    letterSpacing: -0.4,
+  },
+  modalTitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginTop: 4,
+    lineHeight: 19,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F5F5F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    fontSize: 15,
+    color: '#6B7280',
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+
+  modalBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  modalBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  modalBadgeF2F: { backgroundColor: '#FEF3C7' },
+  modalBadgeOnline: { backgroundColor: '#DBEAFE' },
+  modalBadgeExcused: { backgroundColor: '#EAF6EC' },
+  modalBadgeUnexcused: { backgroundColor: '#FFF6E0' },
+  modalBadgeNeutral: { backgroundColor: '#F3F4F6' },
+  modalBadgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.4 },
+  modalBadgeTextF2F: { color: '#C77700' },
+  modalBadgeTextOnline: { color: '#1E88E5' },
+  modalBadgeTextExcused: { color: '#059669' },
+  modalBadgeTextUnexcused: { color: '#C77700' },
+  modalBadgeTextNeutral: { color: '#6B7280' },
+  modalStatusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F7',
+  },
+  modalStatusPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+
+  modalGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: '#F7F5F2',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    gap: 4,
+  },
+  modalGridItem: { width: '50%', paddingVertical: 6 },
+  modalGridLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#9A9A9E',
+    marginBottom: 3,
+  },
+  modalGridValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1A1A1A',
+  },
+
+  modalLiveBlock: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderLeftWidth: 4,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  modalLiveHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  modalLiveHeadline: { fontSize: 13, fontWeight: '900', letterSpacing: 0.3 },
+  modalLiveTime: { fontSize: 11, fontWeight: '800' },
+  modalLiveSubline: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '500',
+    lineHeight: 17,
+  },
+
+  modalGhostBox: {
+    backgroundColor: '#F7F5F2',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#9CA3AF',
+  },
+  modalGhostLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#9A9A9E',
+    marginBottom: 6,
+  },
+  modalGhostCause: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 3,
+  },
+  modalGhostReason: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 6,
+  },
+  modalGhostNotes: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    lineHeight: 17,
+    marginTop: 4,
+  },
+
+  modalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  modalPrimaryBtn: {
+    flex: 1,
+    minWidth: 120,
+    backgroundColor: '#8B0000',
+    paddingVertical: 15,
+    borderRadius: 14,
+    alignItems: 'center',
+    shadowColor: '#8B0000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  modalPrimaryBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  modalSecondaryBtn: {
+    flex: 1,
+    minWidth: 120,
+    backgroundColor: '#F5F5F7',
+    paddingVertical: 15,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  modalSecondaryBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    letterSpacing: 0.3,
+  },
+  modalEndEarlyBtn: {
+    flex: 1,
+    minWidth: 140,
+    backgroundColor: '#FFF8F0',
+    borderWidth: 1.5,
+    borderColor: '#C77700',
+    paddingVertical: 15,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  modalEndEarlyBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#C77700',
+    letterSpacing: 0.3,
+  },
+  modalGhostLinkInline: {
+    flexBasis: '100%',
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  modalGhostLinkInlineText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B26A00',
+    textDecorationLine: 'underline',
+  },
 });
 
 export default ProfessorDashboard;
