@@ -19,23 +19,50 @@ import { useAuth } from '../../context/AuthContext';
 import { useSemester } from '../../context/SemesterContext';
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
 
+// ============================================================
+// DESIGN TOKENS
+// ============================================================
+
+const T = {
+  crimson: '#8B0000',
+  crimsonLight: '#A61B1B',
+  ink: '#0B0B0D',
+  inkSoft: '#3F3F46',
+  inkMuted: '#71717A',
+  inkFaint: '#A1A1AA',
+  hair: '#E7E7E9',
+  hair2: '#F1F1F3',
+  canvas: '#F2F2F4',
+  surface: '#FFFFFF',
+  green: '#0F7A4A',
+  greenSoft: '#ECFDF5',
+  amber: '#B45309',
+  amberSoft: '#FEF3C7',
+  red: '#9F1239',
+  redSoft: '#FCE7F3',
+  blue: '#1D4ED8',
+  blueSoft: '#DBEAFE',
+  slate: '#94A3B8',
+  slateSoft: '#F1F5F9',
+};
+
 const COLORS = {
-  primary: '#8B0000',
+  primary: T.crimson,
   white: '#FFFFFF',
-  black: '#1A1A1A',
-  gray: '#9A9A9E',
-  lightGray: '#E8E5DF',
-  background: '#F5F5F7',
-  success: '#059669',
-  warning: '#C77700',
-  error: '#B00020',
-  online: '#1E88E5',
-  excused: '#059669',
-  excusedBg: '#EAF6EC',
-  unexcused: '#B26A00',
-  unexcusedBg: '#FFF6E0',
-  neutral: '#6B7280',
-  neutralBg: '#F3F4F6',
+  black: T.ink,
+  gray: T.inkMuted,
+  lightGray: T.hair,
+  background: T.canvas,
+  success: T.green,
+  warning: T.amber,
+  error: T.red,
+  online: T.blue,
+  excused: T.green,
+  excusedBg: T.greenSoft,
+  unexcused: T.amber,
+  unexcusedBg: T.amberSoft,
+  neutral: T.slate,
+  neutralBg: T.slateSoft,
 };
 
 const DAYS = ['Sun', 'M', 'T', 'W', 'Th', 'F', 'Sat'];
@@ -105,7 +132,6 @@ const ReportGhostScreen = () => {
   const [profReason, setProfReason] = useState(null);
   const [notes, setNotes] = useState('');
 
-  // ── Release room defaults to ON ───────────────────────────
   const [releaseRoom, setReleaseRoom] = useState(true);
 
   const [submitting, setSubmitting] = useState(false);
@@ -243,17 +269,15 @@ const ReportGhostScreen = () => {
     if (cause !== 'professor') setProfReason(null);
   }, [cause]);
 
-  // Reset form state whenever the day changes — release room back to ON
   useEffect(() => {
     setCause(null);
     setProfReason(null);
-    setReleaseRoom(true); // ← default ON
+    setReleaseRoom(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayOffset]);
 
-  // Reset release room back to ON when picking a different class
   useEffect(() => {
-    setReleaseRoom(true); // ← default ON
+    setReleaseRoom(true);
   }, [selectedClass?.id]);
 
   const handleSubmit = async () => {
@@ -342,82 +366,134 @@ const ReportGhostScreen = () => {
 
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-        <ScrollView contentContainerStyle={styles.successContent}>
-          <View style={styles.successCard}>
-            <View style={styles.successIconCircle}>
-              <Text style={styles.successIcon}>✓</Text>
-            </View>
-            <Text style={styles.successTitle}>Report Submitted</Text>
-            <Text style={styles.successSubtitle}>
-              Your report has been sent to your Program Chair and Admin.
-            </Text>
+        <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
-            {cause === 'professor' && (
-              <View
+        <View style={styles.header}>
+          <View style={styles.headerDecor} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerTopRow}>
+              <View style={{ width: 34 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.headerEyebrow}>FACULTY</Text>
+                <Text style={styles.headerTitle}>Report Ghost Class</Text>
+              </View>
+              <View style={{ width: 34 }} />
+            </View>
+          </View>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.successContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.successToneStrip}>
+            <View style={styles.successToneDot} />
+            <Text style={styles.successToneLabel}>SUBMITTED</Text>
+          </View>
+
+          <View style={styles.successBadge}>
+            <Text style={styles.successBadgeGlyph}>✓</Text>
+          </View>
+
+          <Text style={styles.successTitle}>Report submitted</Text>
+          <Text style={styles.successSubtitle}>
+            Your report has been sent to your Program Chair and Admin.
+          </Text>
+
+          {cause === 'professor' && (
+            <View
+              style={[
+                styles.statusBanner,
+                isExcused
+                  ? {
+                      backgroundColor: T.greenSoft,
+                      borderLeftColor: T.green,
+                    }
+                  : {
+                      backgroundColor: T.amberSoft,
+                      borderLeftColor: T.amber,
+                    },
+              ]}
+            >
+              <Text
                 style={[
-                  styles.statusBanner,
-                  isExcused ? styles.statusBannerExcused : styles.statusBannerUnexcused,
+                  styles.statusBannerText,
+                  { color: isExcused ? T.green : T.amber },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.statusBannerText,
-                    isExcused ? styles.statusTextExcused : styles.statusTextUnexcused,
-                  ]}
-                >
-                  {isExcused ? '✓ Marked as EXCUSED absence' : '! Marked as UNEXCUSED absence'}
-                </Text>
-                <Text style={styles.statusBannerHint}>
-                  {isExcused
-                    ? 'Your absence has been classified as legitimate.'
-                    : 'This will be reviewed by your Program Chair.'}
-                </Text>
-              </View>
-            )}
-
-            {releaseRoom && (
-              <View style={styles.releaseBanner}>
-                <Text style={styles.releaseBannerIcon}>🔓</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.releaseBannerTitle}>Room released</Text>
-                  <Text style={styles.releaseBannerText}>
-                    {selectedClass?.room_name} is now shown as available for the scheduled time. Other classes may use it.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryBoxLabel}>CLASS</Text>
-              <Text style={styles.summaryBoxValue}>
-                {selectedClass?.subject_code || '—'} · {selectedClass?.section || '—'}
+                {isExcused ? 'MARKED AS EXCUSED' : 'MARKED AS UNEXCUSED'}
               </Text>
-              <Text style={[styles.summaryBoxLabel, { marginTop: 12 }]}>DATE</Text>
-              <Text style={styles.summaryBoxValue}>
+              <Text style={styles.statusBannerHint}>
+                {isExcused
+                  ? 'Your absence has been classified as legitimate.'
+                  : 'This will be reviewed by your Program Chair.'}
+              </Text>
+            </View>
+          )}
+
+          {releaseRoom && selectedClass?.room_name && (
+            <View style={styles.releaseBanner}>
+              <View style={styles.releaseBannerStripe} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.releaseBannerTitle}>Room released</Text>
+                <Text style={styles.releaseBannerText}>
+                  {selectedClass.room_name} is now shown as available for the
+                  scheduled time. Other classes may use it.
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.summaryBox}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>CLASS</Text>
+              <Text style={styles.summaryValue}>
+                {selectedClass?.subject_code || '—'}
+                {selectedClass?.section ? ` · ${selectedClass.section}` : ''}
+              </Text>
+            </View>
+
+            <View style={styles.summaryDivider} />
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>DATE</Text>
+              <Text style={styles.summaryValue}>
                 {dayLabel} · {formatShortDate(targetDate)}
               </Text>
-              <Text style={[styles.summaryBoxLabel, { marginTop: 12 }]}>TIME</Text>
-              <Text style={styles.summaryBoxValue}>
+            </View>
+
+            <View style={styles.summaryDivider} />
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>TIME</Text>
+              <Text style={styles.summaryValue}>
                 {selectedClass?.start_time
-                  ? `${formatTime(selectedClass.start_time)} – ${formatTime(selectedClass.end_time)}`
+                  ? `${formatTime(selectedClass.start_time)} – ${formatTime(
+                      selectedClass.end_time
+                    )}`
                   : '—'}
               </Text>
-              <Text style={[styles.summaryBoxLabel, { marginTop: 12 }]}>REASON</Text>
-              <Text style={styles.summaryBoxValue}>
+            </View>
+
+            <View style={styles.summaryDivider} />
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>REASON</Text>
+              <Text style={styles.summaryValue}>
                 {cause === 'professor'
                   ? PROFESSOR_REASONS.find((r) => r.code === profReason)?.label
                   : CAUSES.find((c) => c.code === cause)?.label}
               </Text>
             </View>
-
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => navigation.navigate('ProfessorDashboard')}
-            >
-              <Text style={styles.primaryButtonText}>Back to Dashboard</Text>
-            </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => navigation.navigate('ProfessorDashboard')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.primaryButtonText}>Back to Dashboard</Text>
+          </TouchableOpacity>
         </ScrollView>
       </View>
     );
@@ -430,22 +506,38 @@ const ReportGhostScreen = () => {
   if (!semester) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+        <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
+
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backText}>‹ Back</Text>
-          </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={styles.headerEyebrow}>FACULTY</Text>
-            <Text style={styles.headerTitle}>Report Ghost Class</Text>
+          <View style={styles.headerDecor} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerTopRow}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              >
+                <Text style={styles.backText}>‹</Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={styles.headerEyebrow}>FACULTY</Text>
+                <Text style={styles.headerTitle}>Report Ghost Class</Text>
+              </View>
+              <View style={{ width: 34 }} />
+            </View>
           </View>
-          <View style={{ width: 60 }} />
         </View>
-        <View style={styles.center}>
-          <Text style={styles.emptyPickerIcon}>📚</Text>
-          <Text style={styles.emptyPickerTitle}>No active semester</Text>
-          <Text style={styles.emptyPickerText}>
-            There's no semester open right now. Please contact the admin to activate one before reporting classes.
+
+        <View style={styles.emptyCenter}>
+          <View style={styles.emptyIconWrap}>
+            <View style={styles.emptyIconDot} />
+            <View style={styles.emptyIconRing} />
+          </View>
+          <Text style={styles.emptyEyebrow}>NO SEMESTER</Text>
+          <Text style={styles.emptyTitle}>Nothing to report</Text>
+          <Text style={styles.emptyText}>
+            There's no semester open right now. Please contact the admin to
+            activate one before reporting classes.
           </Text>
         </View>
       </View>
@@ -467,23 +559,47 @@ const ReportGhostScreen = () => {
       ? 'You have no scheduled classes tomorrow to report in advance.'
       : "You have no scheduled classes today that haven't already been reported.";
 
-  return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+  const submitDisabled =
+    submitting || !cause || (cause === 'professor' && !profReason);
 
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
+
+        {/* ==================== HEADER ==================== */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backText}>‹ Back</Text>
-          </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={styles.headerEyebrow}>FACULTY</Text>
-            <Text style={styles.headerTitle}>Report Ghost Class</Text>
+          <View style={styles.headerDecor} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerTopRow}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              >
+                <Text style={styles.backText}>‹</Text>
+              </TouchableOpacity>
+
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={styles.headerEyebrow}>FACULTY</Text>
+                <Text style={styles.headerTitle}>Report Ghost Class</Text>
+              </View>
+
+              <View style={{ width: 34 }} />
+            </View>
+
             {semester && (
-              <Text style={styles.headerSemester} numberOfLines={1}>{semester.name}</Text>
+              <View style={styles.semesterRow}>
+                <View style={styles.semesterDot} />
+                <Text style={styles.semesterText} numberOfLines={1}>
+                  {semester.name}
+                </Text>
+              </View>
             )}
           </View>
-          <View style={{ width: 60 }} />
         </View>
 
         <ScrollView
@@ -491,6 +607,7 @@ const ReportGhostScreen = () => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* ==================== DAY TABS ==================== */}
           <View style={styles.dayTabsRow}>
             {DAY_OPTIONS.map((opt) => {
               const isActive = dayOffset === opt.offset;
@@ -500,12 +617,22 @@ const ReportGhostScreen = () => {
                   key={opt.key}
                   style={[styles.dayTabPill, isActive && styles.dayTabPillActive]}
                   onPress={() => setDayOffset(opt.offset)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
-                  <Text style={[styles.dayTabPillLabel, isActive && styles.dayTabPillLabelActive]}>
+                  <Text
+                    style={[
+                      styles.dayTabPillLabel,
+                      isActive && styles.dayTabPillLabelActive,
+                    ]}
+                  >
                     {opt.label}
                   </Text>
-                  <Text style={[styles.dayTabPillSub, isActive && styles.dayTabPillSubActive]}>
+                  <Text
+                    style={[
+                      styles.dayTabPillSub,
+                      isActive && styles.dayTabPillSubActive,
+                    ]}
+                  >
                     {formatShortDate(optDate)}
                   </Text>
                 </TouchableOpacity>
@@ -513,30 +640,51 @@ const ReportGhostScreen = () => {
             })}
           </View>
 
+          {/* ==================== CONTEXT HINT ==================== */}
           {dayOffset !== 0 && (
             <View
               style={[
                 styles.contextHint,
-                dayOffset === -1 ? styles.contextHintLate : styles.contextHintAdvance,
+                dayOffset === -1
+                  ? { borderLeftColor: T.amber, backgroundColor: T.amberSoft }
+                  : { borderLeftColor: T.blue, backgroundColor: T.blueSoft },
               ]}
             >
-              <Text style={styles.contextHintIcon}>{dayOffset === -1 ? '⏪' : '⏩'}</Text>
+              <View
+                style={[
+                  styles.contextHintTag,
+                  dayOffset === -1
+                    ? { backgroundColor: T.amber }
+                    : { backgroundColor: T.blue },
+                ]}
+              >
+                <Text style={styles.contextHintTagText}>
+                  {dayOffset === -1 ? 'LATE' : 'ADVANCE'}
+                </Text>
+              </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contextHintTitle}>
                   {dayOffset === -1 ? 'Late report' : 'Advance report'}
                 </Text>
                 <Text style={styles.contextHintText}>
                   {dayOffset === -1
-                    ? `This will be logged as a report for ${formatShortDate(targetDate)}. Use this for classes you couldn't report on time.`
-                    : `This will be logged as an advance notice for ${formatShortDate(targetDate)}. Your chair will see it before the class date.`}
+                    ? `Logged for ${formatShortDate(targetDate)}. Use this for classes you couldn't report on time.`
+                    : `Logged as advance notice for ${formatShortDate(targetDate)}. Your chair will see it before the class date.`}
                 </Text>
               </View>
             </View>
           )}
 
-          <Text style={styles.stepLabel}>
-            STEP 1 OF {showSecondStep ? '3' : '2'}
-          </Text>
+          {/* ==================== STEP 1 ==================== */}
+          <View style={styles.stepHeader}>
+            <View style={styles.stepCounter}>
+              <Text style={styles.stepCounterText}>
+                1 / {showSecondStep ? '3' : '2'}
+              </Text>
+            </View>
+            <Text style={styles.stepEyebrow}>SELECT CLASS</Text>
+          </View>
+
           <Text style={styles.sectionTitle}>Which class are you reporting?</Text>
           <Text style={styles.sectionSubtitle}>
             {dayOffset === -1
@@ -547,11 +695,14 @@ const ReportGhostScreen = () => {
           </Text>
 
           {pickerLoading ? (
-            <View style={styles.pickerList}>
+            <View style={styles.pickerGroup}>
               {[1, 2, 3].map((i) => (
-                <View key={i} style={styles.pickerRow}>
+                <View
+                  key={i}
+                  style={[styles.pickerRow, i < 3 && styles.pickerRowDivided]}
+                >
                   <SkeletonCircle size={22} />
-                  <View style={{ flex: 1, gap: 6 }}>
+                  <View style={{ flex: 1, gap: 6, marginLeft: 12 }}>
                     <Skeleton width="60%" height={14} radius={4} />
                     <Skeleton width="80%" height={12} radius={4} />
                     <Skeleton width="50%" height={11} radius={4} />
@@ -561,36 +712,74 @@ const ReportGhostScreen = () => {
             </View>
           ) : !hasClasses ? (
             <View style={styles.emptyPicker}>
-              <Text style={styles.emptyPickerIcon}>{dayOffset === 1 ? '📅' : '✓'}</Text>
+              <View style={styles.emptyPickerIconWrap}>
+                <Text style={styles.emptyPickerIconText}>
+                  {dayOffset === 1 ? '⌛' : '✓'}
+                </Text>
+              </View>
               <Text style={styles.emptyPickerTitle}>
-                {dayOffset === -1 ? 'Nothing to report' : dayOffset === 1 ? 'No classes tomorrow' : 'No classes to report'}
+                {dayOffset === -1
+                  ? 'Nothing to report'
+                  : dayOffset === 1
+                  ? 'No classes tomorrow'
+                  : 'No classes to report'}
               </Text>
               <Text style={styles.emptyPickerText}>{emptyMessage}</Text>
             </View>
           ) : (
-            <View style={styles.pickerList}>
-              {todayClasses.map((cls) => {
+            <View style={styles.pickerGroup}>
+              {todayClasses.map((cls, idx) => {
                 const isSelected = selectedClass?.id === cls.id;
+                const isLast = idx === todayClasses.length - 1;
                 return (
                   <TouchableOpacity
                     key={cls.id}
-                    style={[styles.pickerRow, isSelected && styles.pickerRowSelected]}
+                    style={[
+                      styles.pickerRow,
+                      !isLast && styles.pickerRowDivided,
+                      isSelected && styles.pickerRowSelected,
+                    ]}
                     onPress={() => setSelectedClass(cls)}
                     activeOpacity={0.7}
                   >
-                    <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        isSelected && styles.radioOuterSelected,
+                      ]}
+                    >
                       {isSelected && <View style={styles.radioInner} />}
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.pickerCode, isSelected && styles.pickerCodeSelected]}>
-                        {cls.subject_code} · {cls.section}
-                      </Text>
+
+                    <View style={styles.pickerBody}>
+                      <View style={styles.pickerTopRow}>
+                        <Text
+                          style={[
+                            styles.pickerCode,
+                            isSelected && styles.pickerCodeSelected,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {cls.subject_code}
+                        </Text>
+                        {!!cls.section && (
+                          <View style={styles.pickerSectionPill}>
+                            <Text style={styles.pickerSectionPillText}>
+                              {cls.section}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
                       <Text style={styles.pickerMeta} numberOfLines={1}>
                         {formatTime(cls.start_time)} – {formatTime(cls.end_time)}
                         {cls.room_name ? ` · ${cls.room_name}` : ''}
                       </Text>
+
                       {!!cls.course_title && (
-                        <Text style={styles.pickerTitle} numberOfLines={1}>{cls.course_title}</Text>
+                        <Text style={styles.pickerTitle} numberOfLines={1}>
+                          {cls.course_title}
+                        </Text>
                       )}
                     </View>
                   </TouchableOpacity>
@@ -601,19 +790,31 @@ const ReportGhostScreen = () => {
 
           {hasClasses && (
             <>
+              {/* ==================== INFO BANNER ==================== */}
               <View style={styles.infoBanner}>
-                <Text style={styles.infoBannerIcon}>⚠</Text>
+                <View style={styles.infoBannerStripe} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.infoBannerTitle}>Why we ask for the reason</Text>
+                  <Text style={styles.infoBannerTitle}>
+                    Why we ask for the reason
+                  </Text>
                   <Text style={styles.infoBannerText}>
-                    Reports are reviewed by your Program Chair. Legitimate absences (meetings, medical, emergency) are marked as "excused" so your record stays accurate.
+                    Reports are reviewed by your Program Chair. Legitimate
+                    absences (meetings, medical, emergency) are marked as
+                    "excused" so your record stays accurate.
                   </Text>
                 </View>
               </View>
 
-              <Text style={styles.stepLabel}>
-                STEP 2 OF {showSecondStep ? '3' : '2'}
-              </Text>
+              {/* ==================== STEP 2 ==================== */}
+              <View style={styles.stepHeader}>
+                <View style={styles.stepCounter}>
+                  <Text style={styles.stepCounterText}>
+                    2 / {showSecondStep ? '3' : '2'}
+                  </Text>
+                </View>
+                <Text style={styles.stepEyebrow}>WHAT HAPPENED</Text>
+              </View>
+
               <Text style={styles.sectionTitle}>What happened?</Text>
               <Text style={styles.sectionSubtitle}>
                 Select the option that best describes the situation.
@@ -625,22 +826,40 @@ const ReportGhostScreen = () => {
                   return (
                     <TouchableOpacity
                       key={item.code}
-                      style={[styles.reasonCard, isSelected && styles.reasonCardSelected]}
+                      style={[
+                        styles.reasonCard,
+                        isSelected && styles.reasonCardSelected,
+                      ]}
                       onPress={() => setCause(item.code)}
-                      activeOpacity={0.7}
+                      activeOpacity={0.75}
                     >
-                      <View style={[styles.reasonIconBox, isSelected && styles.reasonIconBoxSelected]}>
-                        <Text style={[styles.reasonIconText, isSelected && styles.reasonIconTextSelected]}>
-                          {item.icon}
-                        </Text>
+                      <View
+                        style={[
+                          styles.reasonIconBox,
+                          isSelected && styles.reasonIconBoxSelected,
+                        ]}
+                      >
+                        <Text style={styles.reasonIconText}>{item.icon}</Text>
                       </View>
+
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.reasonLabel, isSelected && styles.reasonLabelSelected]}>
+                        <Text
+                          style={[
+                            styles.reasonLabel,
+                            isSelected && styles.reasonLabelSelected,
+                          ]}
+                        >
                           {item.label}
                         </Text>
                         <Text style={styles.reasonHint}>{item.hint}</Text>
                       </View>
-                      <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+
+                      <View
+                        style={[
+                          styles.radioOuter,
+                          isSelected && styles.radioOuterSelected,
+                        ]}
+                      >
                         {isSelected && <View style={styles.radioInner} />}
                       </View>
                     </TouchableOpacity>
@@ -648,11 +867,21 @@ const ReportGhostScreen = () => {
                 })}
               </View>
 
+              {/* ==================== STEP 3 ==================== */}
               {showSecondStep && (
                 <>
                   <View style={styles.divider} />
-                  <Text style={styles.stepLabel}>STEP 3 OF 3</Text>
-                  <Text style={styles.sectionTitle}>Why couldn't you attend?</Text>
+
+                  <View style={styles.stepHeader}>
+                    <View style={styles.stepCounter}>
+                      <Text style={styles.stepCounterText}>3 / 3</Text>
+                    </View>
+                    <Text style={styles.stepEyebrow}>REASON</Text>
+                  </View>
+
+                  <Text style={styles.sectionTitle}>
+                    Why couldn't you attend?
+                  </Text>
                   <Text style={styles.sectionSubtitle}>
                     This determines whether your absence is marked as excused.
                   </Text>
@@ -663,30 +892,50 @@ const ReportGhostScreen = () => {
                       return (
                         <TouchableOpacity
                           key={item.code}
-                          style={[styles.reasonCard, isSelected && styles.reasonCardSelected]}
+                          style={[
+                            styles.reasonCard,
+                            isSelected && styles.reasonCardSelected,
+                          ]}
                           onPress={() => setProfReason(item.code)}
-                          activeOpacity={0.7}
+                          activeOpacity={0.75}
                         >
-                          <View style={[styles.reasonIconBox, isSelected && styles.reasonIconBoxSelected]}>
-                            <Text style={[styles.reasonIconText, isSelected && styles.reasonIconTextSelected]}>
+                          <View
+                            style={[
+                              styles.reasonIconBox,
+                              isSelected && styles.reasonIconBoxSelected,
+                            ]}
+                          >
+                            <Text style={styles.reasonIconText}>
                               {item.icon}
                             </Text>
                           </View>
+
                           <View style={{ flex: 1 }}>
                             <View style={styles.reasonTitleRow}>
-                              <Text style={[styles.reasonLabel, isSelected && styles.reasonLabelSelected]}>
+                              <Text
+                                style={[
+                                  styles.reasonLabel,
+                                  isSelected && styles.reasonLabelSelected,
+                                ]}
+                              >
                                 {item.label}
                               </Text>
                               <View
                                 style={[
                                   styles.excuseTag,
-                                  item.isExcused ? styles.excuseTagExcused : styles.excuseTagUnexcused,
+                                  item.isExcused
+                                    ? { backgroundColor: T.greenSoft }
+                                    : { backgroundColor: T.amberSoft },
                                 ]}
                               >
                                 <Text
                                   style={[
                                     styles.excuseTagText,
-                                    item.isExcused ? styles.excuseTagTextExcused : styles.excuseTagTextUnexcused,
+                                    {
+                                      color: item.isExcused
+                                        ? T.green
+                                        : T.amber,
+                                    },
                                   ]}
                                 >
                                   {item.isExcused ? 'EXCUSED' : 'UNEXCUSED'}
@@ -695,7 +944,13 @@ const ReportGhostScreen = () => {
                             </View>
                             <Text style={styles.reasonHint}>{item.hint}</Text>
                           </View>
-                          <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+
+                          <View
+                            style={[
+                              styles.radioOuter,
+                              isSelected && styles.radioOuterSelected,
+                            ]}
+                          >
                             {isSelected && <View style={styles.radioInner} />}
                           </View>
                         </TouchableOpacity>
@@ -705,19 +960,35 @@ const ReportGhostScreen = () => {
                 </>
               )}
 
-              <Text style={styles.sectionTitle}>
-                Additional Notes{' '}
-                <Text style={styles.optionalText}>
-                  ({cause === 'other' ? 'required' : 'optional'})
+              {/* ==================== NOTES ==================== */}
+              <View style={styles.stepHeader}>
+                <View style={styles.stepCounter}>
+                  <Text style={styles.stepCounterText}>
+                    {showSecondStep ? '★' : '★'}
+                  </Text>
+                </View>
+                <Text style={styles.stepEyebrow}>
+                  {cause === 'other' ? 'REQUIRED' : 'OPTIONAL'}
                 </Text>
+              </View>
+
+              <Text style={styles.sectionTitle}>Additional notes</Text>
+              <Text style={styles.sectionSubtitle}>
+                {cause === 'other'
+                  ? 'Please describe what happened in detail.'
+                  : 'Any context that helps your chair review this report.'}
               </Text>
 
               <TextInput
                 style={styles.notesInput}
                 multiline
                 numberOfLines={5}
-                placeholder={cause === 'other' ? 'Please describe what happened…' : 'E.g., "Meeting with the Dean" or "Sick leave approved"…'}
-                placeholderTextColor={COLORS.gray}
+                placeholder={
+                  cause === 'other'
+                    ? 'Please describe what happened…'
+                    : 'E.g., "Meeting with the Dean" or "Sick leave approved"…'
+                }
+                placeholderTextColor={T.inkFaint}
                 value={notes}
                 onChangeText={setNotes}
                 textAlignVertical="top"
@@ -725,64 +996,60 @@ const ReportGhostScreen = () => {
               />
               <Text style={styles.charCount}>{notes.length}/500</Text>
 
+              {/* ==================== RELEASE ROOM ==================== */}
               {canReleaseRoom && (
                 <View style={styles.releaseToggleCard}>
                   <View style={{ flex: 1 }}>
-                    <View style={styles.releaseToggleTitleRow}>
-                      <Text style={styles.releaseToggleIcon}>🔓</Text>
-                      <Text style={styles.releaseToggleTitle}>Release this room</Text>
-                    </View>
+                    <Text style={styles.releaseToggleTitle}>
+                      Release this room
+                    </Text>
                     <Text style={styles.releaseToggleText}>
                       Let other classes use{' '}
-                      <Text style={{ fontWeight: '900' }}>{selectedClass.room_name}</Text>{' '}
-                      during this time slot. Turn OFF if the room should stay reserved for you.
+                      <Text style={{ fontWeight: '900' }}>
+                        {selectedClass.room_name}
+                      </Text>{' '}
+                      during this time slot. Turn OFF to keep it reserved.
                     </Text>
 
-                    {/* Live preview of what the room status will become */}
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        marginTop: 10,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 11,
-                          color: '#9CA3AF',
-                          fontWeight: '600',
-                        }}
-                      >
-                        Room status will show:
+                    <View style={styles.releasePreviewRow}>
+                      <Text style={styles.releasePreviewLabel}>
+                        Room status will show
                       </Text>
                       <View
-                        style={{
-                          marginLeft: 8,
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 6,
-                          backgroundColor: releaseRoom
-                            ? '#EAF6EC'
-                            : '#F3F4F6',
-                        }}
+                        style={[
+                          styles.releasePreviewBadge,
+                          releaseRoom
+                            ? { backgroundColor: T.greenSoft }
+                            : { backgroundColor: T.slateSoft },
+                        ]}
                       >
+                        <View
+                          style={[
+                            styles.releasePreviewDot,
+                            {
+                              backgroundColor: releaseRoom
+                                ? T.green
+                                : T.slate,
+                            },
+                          ]}
+                        />
                         <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: '800',
-                            color: releaseRoom ? '#059669' : '#6B7280',
-                          }}
+                          style={[
+                            styles.releasePreviewText,
+                            { color: releaseRoom ? T.green : T.slate },
+                          ]}
                         >
-                          {releaseRoom ? '● AVAILABLE' : '● CANCELLED'}
+                          {releaseRoom ? 'AVAILABLE' : 'CANCELLED'}
                         </Text>
                       </View>
                     </View>
                   </View>
+
                   <Switch
                     value={releaseRoom}
                     onValueChange={setReleaseRoom}
                     trackColor={{ false: '#E5E7EB', true: '#FFB3B3' }}
-                    thumbColor={releaseRoom ? COLORS.primary : '#F4F4F5'}
+                    thumbColor={releaseRoom ? T.crimson : '#F4F4F5'}
                   />
                 </View>
               )}
@@ -795,26 +1062,31 @@ const ReportGhostScreen = () => {
                 </View>
               )}
 
+              {/* ==================== SUBMIT ==================== */}
               <TouchableOpacity
                 style={[
                   styles.submitButton,
-                  (submitting || !cause || (cause === 'professor' && !profReason)) && styles.submitButtonDisabled,
+                  submitDisabled && styles.submitButtonDisabled,
                 ]}
                 onPress={handleSubmit}
-                disabled={submitting || !cause || (cause === 'professor' && !profReason)}
+                disabled={submitDisabled}
                 activeOpacity={0.85}
               >
                 {submitting ? (
-                  <ActivityIndicator color={COLORS.white} />
+                  <ActivityIndicator color={T.surface} />
                 ) : (
                   <Text style={styles.submitButtonText}>
-                    Submit Report for {selectedClass?.subject_code || '—'}
+                    Submit Report
+                    {selectedClass?.subject_code
+                      ? ` · ${selectedClass.subject_code}`
+                      : ''}
                   </Text>
                 )}
               </TouchableOpacity>
 
               <Text style={styles.footerNote}>
-                Legitimate absences are protected. Only reports marked as unexcused will be flagged for review by your Program Chair.
+                Legitimate absences are protected. Only reports marked as
+                unexcused will be flagged for review by your Program Chair.
               </Text>
             </>
           )}
@@ -832,36 +1104,40 @@ const ReportGhostScreen = () => {
 
 const ReportGhostSkeleton = () => (
   <View style={styles.container}>
-    <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+    <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
     <View style={styles.header}>
-      <Skeleton width={60} height={22} radius={6} />
-      <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-        <Skeleton width={50} height={10} radius={4} />
-        <Skeleton width={150} height={18} radius={6} />
+      <View style={styles.headerContent}>
+        <View style={styles.headerTopRow}>
+          <Skeleton width={34} height={34} radius={17} />
+          <View style={{ flex: 1, paddingLeft: 12, gap: 6 }}>
+            <Skeleton width={60} height={9} radius={3} />
+            <Skeleton width={150} height={18} radius={4} />
+          </View>
+          <View style={{ width: 34 }} />
+        </View>
       </View>
-      <View style={{ width: 60 }} />
     </View>
 
     <View style={styles.scrollContent}>
-      {/* DAY TABS */}
       <View style={styles.dayTabsRow}>
         {[1, 2, 3].map((i) => (
-          <Skeleton key={i} width="31%" height={54} radius={12} />
+          <Skeleton key={i} width="31%" height={62} radius={12} />
         ))}
       </View>
 
-      {/* STEP 1 HEADER */}
-      <Skeleton width={100} height={10} radius={4} />
+      <Skeleton width={80} height={9} radius={3} style={{ marginTop: 8 }} />
       <Skeleton width="70%" height={16} radius={6} style={{ marginTop: 8 }} />
       <Skeleton width="90%" height={12} radius={4} style={{ marginTop: 6 }} />
 
-      {/* CLASS PICKER */}
-      <View style={styles.pickerList}>
+      <View style={styles.pickerGroup}>
         {[1, 2, 3].map((i) => (
-          <View key={i} style={styles.pickerRow}>
+          <View
+            key={i}
+            style={[styles.pickerRow, i < 3 && styles.pickerRowDivided]}
+          >
             <SkeletonCircle size={22} />
-            <View style={{ flex: 1, gap: 6 }}>
+            <View style={{ flex: 1, gap: 6, marginLeft: 12 }}>
               <Skeleton width="60%" height={14} radius={4} />
               <Skeleton width="80%" height={12} radius={4} />
               <Skeleton width="50%" height={11} radius={4} />
@@ -870,19 +1146,16 @@ const ReportGhostSkeleton = () => (
         ))}
       </View>
 
-      {/* INFO BANNER */}
       <Skeleton width="100%" height={70} radius={12} style={{ marginTop: 20 }} />
 
-      {/* STEP 2 HEADER */}
-      <Skeleton width={100} height={10} radius={4} style={{ marginTop: 20 }} />
+      <Skeleton width={80} height={9} radius={3} style={{ marginTop: 24 }} />
       <Skeleton width="60%" height={16} radius={6} style={{ marginTop: 8 }} />
 
-      {/* REASON CARDS */}
       <View style={styles.reasonList}>
         {[1, 2, 3, 4].map((i) => (
           <View key={i} style={styles.reasonCard}>
             <SkeletonCircle size={40} />
-            <View style={{ flex: 1, gap: 6 }}>
+            <View style={{ flex: 1, gap: 6, marginLeft: 12 }}>
               <Skeleton width="60%" height={14} radius={4} />
               <Skeleton width="80%" height={11} radius={4} />
             </View>
@@ -899,305 +1172,459 @@ const ReportGhostSkeleton = () => (
 // ============================================================
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  center: {
+  container: { flex: 1, backgroundColor: T.canvas },
+
+  emptyCenter: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
-    padding: 30,
+    padding: 34,
+    backgroundColor: T.canvas,
   },
-  loadingText: { marginTop: 12, color: COLORS.gray, fontSize: 13 },
+  emptyIconWrap: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 22,
+  },
+  emptyIconRing: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: T.crimson,
+    opacity: 0.35,
+  },
+  emptyIconDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: T.crimson,
+  },
+  emptyEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.crimson,
+    marginBottom: 8,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 13,
+    color: T.inkMuted,
+    textAlign: 'center',
+    lineHeight: 19,
+    maxWidth: 300,
+  },
 
+  // ==================== HEADER ====================
   header: {
+    backgroundColor: T.crimson,
+    paddingTop: 54,
+    paddingBottom: 22,
+    overflow: 'hidden',
+  },
+  headerDecor: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: T.crimsonLight,
+    opacity: 0.4,
+  },
+  headerContent: {
+    paddingHorizontal: 20,
+  },
+  headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 54,
-    paddingBottom: 16,
-    backgroundColor: COLORS.primary,
   },
-  backButton: { width: 60 },
-  backText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  headerEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    color: '#FFFFFF',
-    opacity: 0.7,
-    marginBottom: 2,
-  },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
-  headerSemester: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    opacity: 0.75,
-    marginTop: 2,
-    fontWeight: '600',
-  },
-
-  scrollContent: { padding: 16 },
-
-  dayTabsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  dayTabPill: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: 'transparent',
+  backButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+  },
+  backText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '600',
+    lineHeight: 22,
+    marginTop: -4,
+  },
+  headerEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#FFFFFF',
+    opacity: 0.65,
+    marginBottom: 4,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  semesterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    gap: 7,
+  },
+  semesterDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7CFC9E',
+  },
+  semesterText: {
+    fontSize: 10,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+
+  scrollContent: { padding: 20, paddingBottom: 20 },
+
+  // ==================== DAY TABS ====================
+  dayTabsRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
+  dayTabPill: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: T.surface,
+    borderWidth: 1.5,
+    borderColor: T.hair,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dayTabPillActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+    backgroundColor: T.crimson,
+    borderColor: T.crimson,
   },
   dayTabPillLabel: {
     fontSize: 12,
-    fontWeight: '800',
-    color: COLORS.black,
-    marginBottom: 2,
+    fontWeight: '900',
+    color: T.ink,
+    marginBottom: 3,
+    letterSpacing: -0.1,
   },
   dayTabPillLabelActive: { color: '#FFFFFF' },
   dayTabPillSub: {
     fontSize: 10,
-    fontWeight: '600',
-    color: COLORS.gray,
-    letterSpacing: 0.2,
+    fontWeight: '700',
+    color: T.inkFaint,
+    letterSpacing: 0.4,
   },
   dayTabPillSubActive: { color: 'rgba(255,255,255,0.85)' },
 
+  // ==================== CONTEXT HINT ====================
   contextHint: {
     flexDirection: 'row',
     borderRadius: 12,
     padding: 14,
-    marginBottom: 20,
+    marginBottom: 22,
     gap: 12,
     borderLeftWidth: 4,
+    alignItems: 'flex-start',
   },
-  contextHintLate: {
-    backgroundColor: '#FFF6E0',
-    borderLeftColor: '#C77700',
+  contextHintTag: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+    marginTop: 1,
   },
-  contextHintAdvance: {
-    backgroundColor: '#EFF6FF',
-    borderLeftColor: '#1E88E5',
+  contextHintTagText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#FFFFFF',
   },
-  contextHintIcon: { fontSize: 20 },
   contextHintTitle: {
     fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.black,
+    fontWeight: '900',
+    color: T.ink,
     marginBottom: 3,
+    letterSpacing: -0.1,
   },
   contextHintText: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 17,
+    fontSize: 11,
+    color: T.inkSoft,
+    lineHeight: 16,
+    fontWeight: '500',
   },
 
-  pickerList: { gap: 10, marginBottom: 20 },
-  pickerRow: {
+  // ==================== STEP HEADER ====================
+  stepHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  pickerRowSelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: '#FFF8F8',
-  },
-  pickerCode: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.black,
-    marginBottom: 2,
-  },
-  pickerCodeSelected: { color: COLORS.primary },
-  pickerMeta: {
-    fontSize: 12,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  pickerTitle: {
-    fontSize: 11,
-    color: COLORS.gray,
-    marginTop: 3,
-    fontStyle: 'italic',
-  },
-  pickerLoadingBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 40,
-    alignItems: 'center',
-    marginBottom: 20,
+    marginTop: 4,
+    marginBottom: 8,
     gap: 10,
   },
-  pickerLoadingText: {
-    fontSize: 12,
-    color: COLORS.gray,
-    fontWeight: '600',
+  stepCounter: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
+    backgroundColor: T.crimson,
   },
-  emptyPicker: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 28,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  emptyPickerIcon: {
-    fontSize: 32,
-    color: COLORS.success,
-    marginBottom: 8,
-  },
-  emptyPickerTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.black,
-    marginBottom: 6,
-  },
-  emptyPickerText: {
-    fontSize: 12,
-    color: COLORS.gray,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-
-  infoBanner: {
-    flexDirection: 'row',
-    backgroundColor: '#EFF6FF',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.online,
-    gap: 12,
-  },
-  infoBannerIcon: { fontSize: 20, color: '#1E40AF' },
-  infoBannerTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1E40AF',
-    marginBottom: 3,
-  },
-  infoBannerText: {
-    fontSize: 12,
-    color: '#1E40AF',
-    lineHeight: 17,
-    opacity: 0.85,
-  },
-
-  stepLabel: {
-    fontSize: 10,
+  stepCounterText: {
+    fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1.5,
-    color: COLORS.primary,
-    marginBottom: 4,
+    letterSpacing: 1,
+    color: '#FFFFFF',
   },
+  stepEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.inkFaint,
+  },
+
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.black,
+    fontSize: 17,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.3,
     marginBottom: 4,
   },
   sectionSubtitle: {
     fontSize: 12,
-    color: COLORS.gray,
-    marginBottom: 12,
+    color: T.inkMuted,
+    marginBottom: 14,
+    lineHeight: 17,
+    fontWeight: '500',
   },
   optionalText: {
     fontSize: 11,
     fontWeight: '600',
-    color: COLORS.gray,
+    color: T.inkFaint,
     fontStyle: 'italic',
   },
   divider: {
     height: 1,
-    backgroundColor: '#E5E5E7',
-    marginVertical: 24,
+    backgroundColor: T.hair,
+    marginVertical: 26,
   },
 
-  reasonList: { gap: 10, marginBottom: 24 },
+  // ==================== PICKER ====================
+  pickerGroup: {
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
+    marginBottom: 20,
+    overflow: 'hidden',
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  pickerRowDivided: {
+    borderBottomWidth: 1,
+    borderBottomColor: T.hair2,
+  },
+  pickerRowSelected: {
+    backgroundColor: '#FFF8F8',
+  },
+  pickerBody: { flex: 1 },
+  pickerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 3,
+  },
+  pickerCode: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.1,
+  },
+  pickerCodeSelected: { color: T.crimson },
+  pickerSectionPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: T.hair2,
+  },
+  pickerSectionPillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    color: T.inkMuted,
+  },
+  pickerMeta: {
+    fontSize: 11,
+    color: T.inkSoft,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  pickerTitle: {
+    fontSize: 11,
+    color: T.inkMuted,
+    marginTop: 3,
+    fontWeight: '500',
+  },
+
+  // ==================== EMPTY PICKER ====================
+  emptyPicker: {
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
+    padding: 32,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  emptyPickerIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: T.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyPickerIconText: {
+    fontSize: 22,
+    color: T.green,
+    fontWeight: '900',
+  },
+  emptyPickerTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.2,
+    marginBottom: 6,
+  },
+  emptyPickerText: {
+    fontSize: 12,
+    color: T.inkMuted,
+    textAlign: 'center',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+
+  // ==================== INFO BANNER ====================
+  infoBanner: {
+    flexDirection: 'row',
+    backgroundColor: T.blueSoft,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 22,
+    borderLeftWidth: 4,
+    borderLeftColor: T.blue,
+    overflow: 'hidden',
+  },
+  infoBannerStripe: {
+    width: 0,
+  },
+  infoBannerTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#1E3A8A',
+    marginBottom: 4,
+    letterSpacing: -0.1,
+  },
+  infoBannerText: {
+    fontSize: 11,
+    color: '#1E3A8A',
+    lineHeight: 16,
+    opacity: 0.9,
+    fontWeight: '500',
+  },
+
+  // ==================== REASON CARDS ====================
+  reasonList: { gap: 8, marginBottom: 22 },
   reasonCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.surface,
     borderRadius: 14,
     padding: 14,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: T.hair,
     gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
   },
   reasonCardSelected: {
-    borderColor: COLORS.primary,
+    borderColor: T.crimson,
     backgroundColor: '#FFF8F8',
   },
   reasonIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: '#F5F5F7',
+    width: 42,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: T.hair2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  reasonIconBoxSelected: { backgroundColor: '#FFE5E5' },
-  reasonIconText: { fontSize: 18, color: COLORS.gray },
-  reasonIconTextSelected: { color: COLORS.primary },
+  reasonIconBoxSelected: {
+    backgroundColor: '#FFE5E5',
+  },
+  reasonIconText: {
+    fontSize: 18,
+  },
   reasonTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginBottom: 4,
+    flexWrap: 'wrap',
   },
   reasonLabel: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.black,
-    marginBottom: 2,
+    fontSize: 13,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.1,
   },
-  reasonLabelSelected: { color: COLORS.primary },
+  reasonLabelSelected: { color: T.crimson },
   reasonHint: {
     fontSize: 11,
-    color: COLORS.gray,
+    color: T.inkMuted,
     lineHeight: 15,
+    fontWeight: '500',
   },
   excuseTag: {
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  excuseTagExcused: { backgroundColor: COLORS.excusedBg },
-  excuseTagUnexcused: { backgroundColor: COLORS.unexcusedBg },
   excuseTagText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '900',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
-  excuseTagTextExcused: { color: COLORS.excused },
-  excuseTagTextUnexcused: { color: COLORS.unexcused },
 
+  // ==================== RADIO ====================
   radioOuter: {
     width: 22,
     height: 22,
@@ -1207,235 +1634,299 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioOuterSelected: { borderColor: COLORS.primary },
+  radioOuterSelected: { borderColor: T.crimson },
   radioInner: {
-    width: 12,
-    height: 12,
+    width: 11,
+    height: 11,
     borderRadius: 6,
-    backgroundColor: COLORS.primary,
+    backgroundColor: T.crimson,
   },
 
+  // ==================== NOTES ====================
   notesInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.surface,
     borderRadius: 14,
     padding: 14,
     fontSize: 13,
-    color: COLORS.black,
+    color: T.ink,
     minHeight: 120,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    marginTop: 8,
+    borderWidth: 1.5,
+    borderColor: T.hair,
+    lineHeight: 19,
   },
   charCount: {
     fontSize: 10,
-    color: COLORS.gray,
+    color: T.inkFaint,
     textAlign: 'right',
-    marginTop: 4,
+    marginTop: 6,
     marginBottom: 24,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
 
+  // ==================== RELEASE TOGGLE ====================
   releaseToggleCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF8F0',
+    backgroundColor: T.surface,
     borderRadius: 14,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: T.hair,
     borderLeftWidth: 4,
-    borderLeftColor: '#C77700',
-    gap: 12,
+    borderLeftColor: T.amber,
+    gap: 14,
   },
-  releaseToggleTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  releaseToggleIcon: { fontSize: 16 },
   releaseToggleTitle: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#8A4B00',
+    fontWeight: '900',
+    color: T.ink,
+    marginBottom: 4,
+    letterSpacing: -0.1,
   },
   releaseToggleText: {
     fontSize: 11,
-    color: '#8A4B00',
+    color: T.inkSoft,
     lineHeight: 16,
-    opacity: 0.9,
+    fontWeight: '500',
   },
-  releaseNotApplicable: {
-    backgroundColor: '#F5F5F7',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
+  releasePreviewRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 12,
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  releasePreviewLabel: {
+    fontSize: 10,
+    color: T.inkFaint,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  releasePreviewBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 5,
+  },
+  releasePreviewDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  releasePreviewText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+
+  releaseNotApplicable: {
+    backgroundColor: T.surface,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: T.hair,
   },
   releaseNotApplicableText: {
     fontSize: 11,
-    color: COLORS.gray,
+    color: T.inkMuted,
     fontStyle: 'italic',
+    fontWeight: '500',
   },
 
+  // ==================== SUBMIT ====================
   submitButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: T.crimson,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 16,
-    shadowColor: COLORS.primary,
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
   },
   submitButtonDisabled: {
     backgroundColor: '#C4C4C6',
-    shadowOpacity: 0,
-    elevation: 0,
   },
   submitButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
   footerNote: {
     fontSize: 11,
-    color: COLORS.gray,
+    color: T.inkMuted,
     textAlign: 'center',
     lineHeight: 16,
     fontStyle: 'italic',
     paddingHorizontal: 12,
+    fontWeight: '500',
   },
 
+  // ==================== SUCCESS ====================
   successContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
     padding: 24,
-  },
-  successCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 32,
+    paddingTop: 40,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
   },
-  successIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#EAF6EC',
+  successToneStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    marginBottom: 24,
+    gap: 8,
+  },
+  successToneDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: T.green,
+  },
+  successToneLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    color: T.green,
+  },
+  successBadge: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: T.greenSoft,
+    borderWidth: 2,
+    borderColor: '#BFE3CF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginBottom: 22,
   },
-  successIcon: {
-    fontSize: 42,
-    color: COLORS.success,
+  successBadgeGlyph: {
+    fontSize: 38,
     fontWeight: '900',
+    color: T.green,
+    lineHeight: 40,
   },
   successTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '900',
-    color: COLORS.black,
+    color: T.ink,
+    letterSpacing: -0.4,
     marginBottom: 8,
+    textAlign: 'center',
   },
   successSubtitle: {
     fontSize: 13,
-    color: COLORS.gray,
+    color: T.inkMuted,
     textAlign: 'center',
     lineHeight: 19,
-    marginBottom: 20,
-    paddingHorizontal: 10,
+    marginBottom: 22,
+    paddingHorizontal: 12,
+    fontWeight: '500',
   },
   statusBanner: {
     width: '100%',
     padding: 14,
     borderRadius: 12,
-    marginBottom: 20,
+    marginBottom: 14,
     borderLeftWidth: 4,
   },
-  statusBannerExcused: {
-    backgroundColor: COLORS.excusedBg,
-    borderLeftColor: COLORS.excused,
-  },
-  statusBannerUnexcused: {
-    backgroundColor: COLORS.unexcusedBg,
-    borderLeftColor: COLORS.unexcused,
-  },
   statusBannerText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '900',
+    letterSpacing: 1,
     marginBottom: 4,
   },
-  statusTextExcused: { color: COLORS.excused },
-  statusTextUnexcused: { color: COLORS.unexcused },
   statusBannerHint: {
     fontSize: 11,
-    color: COLORS.black,
-    opacity: 0.75,
+    color: T.inkSoft,
+    opacity: 0.85,
     lineHeight: 16,
+    fontWeight: '500',
   },
-
   releaseBanner: {
     flexDirection: 'row',
     width: '100%',
-    backgroundColor: '#FFF8F0',
+    backgroundColor: T.surface,
     borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#C77700',
-    gap: 12,
+    paddingVertical: 14,
+    paddingRight: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
+    overflow: 'hidden',
   },
-  releaseBannerIcon: { fontSize: 22 },
+  releaseBannerStripe: {
+    width: 3,
+    backgroundColor: T.amber,
+    marginRight: 12,
+  },
   releaseBannerTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
-    color: '#8A4B00',
+    color: T.ink,
     marginBottom: 3,
+    letterSpacing: -0.1,
   },
   releaseBannerText: {
     fontSize: 11,
-    color: '#8A4B00',
+    color: T.inkMuted,
     lineHeight: 16,
-    opacity: 0.9,
+    fontWeight: '500',
   },
 
   summaryBox: {
     width: '100%',
-    backgroundColor: '#F7F5F2',
-    borderRadius: 12,
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
     padding: 16,
     marginBottom: 24,
   },
-  summaryBoxLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: COLORS.gray,
-    marginBottom: 2,
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    gap: 12,
   },
-  summaryBoxValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.black,
+  summaryDivider: {
+    height: 1,
+    backgroundColor: T.hair2,
+  },
+  summaryLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    color: T.inkFaint,
+  },
+  summaryValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: T.ink,
+    textAlign: 'right',
+    flex: 1,
+    letterSpacing: -0.1,
   },
   primaryButton: {
     width: '100%',
-    backgroundColor: COLORS.primary,
+    backgroundColor: T.crimson,
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: 'center',
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 });
 

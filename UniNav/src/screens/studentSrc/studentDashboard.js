@@ -257,6 +257,7 @@ const StudentDashboard = ({ navigation }) => {
   // Class detail modal
   const [detailClass, setDetailClass] = useState(null);
 
+  // Clock tick — drives greeting / live status labels only
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
@@ -391,7 +392,8 @@ const StudentDashboard = ({ navigation }) => {
 
       setTodayClasses(enriched);
 
-      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const currentNow = new Date();
+      const nowMin = currentNow.getHours() * 60 + currentNow.getMinutes();
       const upcoming = enriched.find((c) => {
         const end = timeToMinutes(c.end_time);
         return end !== null && nowMin <= end;
@@ -405,7 +407,7 @@ const StudentDashboard = ({ navigation }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, session, now, semester]);
+  }, [user, session, semester]);
 
   useFocusEffect(
     useCallback(() => {

@@ -18,25 +18,48 @@ import { useSemester } from '../../context/SemesterContext';
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
 
 // ============================================================
-// CONSTANTS
+// DESIGN TOKENS
 // ============================================================
 
+const T = {
+  crimson: '#8B0000',
+  crimsonLight: '#A61B1B',
+  ink: '#0B0B0D',
+  inkSoft: '#3F3F46',
+  inkMuted: '#71717A',
+  inkFaint: '#A1A1AA',
+  hair: '#E7E7E9',
+  hair2: '#F1F1F3',
+  canvas: '#F2F2F4',
+  surface: '#FFFFFF',
+  green: '#0F7A4A',
+  greenSoft: '#ECFDF5',
+  amber: '#B45309',
+  amberSoft: '#FEF3C7',
+  red: '#9F1239',
+  redSoft: '#FCE7F3',
+  blue: '#1D4ED8',
+  blueSoft: '#DBEAFE',
+  slate: '#94A3B8',
+  slateSoft: '#F1F5F9',
+};
+
 const COLORS = {
-  primary: '#8B0000',
+  primary: T.crimson,
   white: '#FFFFFF',
-  black: '#1A1A1A',
-  gray: '#9A9A9E',
-  lightGray: '#E8E5DF',
-  background: '#F5F5F7',
-  success: '#059669',
-  warning: '#C77700',
-  online: '#1E88E5',
-  onlineBg: '#DBEAFE',
-  f2fBg: '#FEF3C7',
-  excusedBg: '#EAF6EC',
-  unexcusedBg: '#FFF6E0',
-  neutralBg: '#F3F4F6',
-  ghostBg: '#FAFAFA',
+  black: T.ink,
+  gray: T.inkMuted,
+  lightGray: T.hair,
+  background: T.canvas,
+  success: T.green,
+  warning: T.amber,
+  online: T.blue,
+  onlineBg: T.blueSoft,
+  f2fBg: T.amberSoft,
+  excusedBg: T.greenSoft,
+  unexcusedBg: T.amberSoft,
+  neutralBg: T.slateSoft,
+  ghostBg: T.slateSoft,
 };
 
 const WEEK = [
@@ -191,6 +214,16 @@ const getLiveStatus = (cls, nowMin, todayCode) => {
   if (start === null || end === null) return null;
 
   if (nowMin > end) {
+    if (hasSession && endedEarly) {
+      return {
+        roomState: 'ended_early',
+        icon: '⏹',
+        headline: 'ENDED EARLY',
+        subline: `You ended this class at ${formatVerifiedTime(
+          cls.liveSession.ended_at
+        )}`,
+      };
+    }
     return {
       roomState: 'ended',
       icon: '·',
@@ -213,7 +246,7 @@ const getLiveStatus = (cls, nowMin, todayCode) => {
   if (hasSession) {
     if (endedEarly) {
       return {
-        roomState: 'ended',
+        roomState: 'ended_early',
         icon: '⏹',
         headline: 'ENDED EARLY',
         subline: `You ended this class at ${formatVerifiedTime(cls.liveSession.ended_at)}`,
@@ -238,12 +271,25 @@ const getLiveStatus = (cls, nowMin, todayCode) => {
 
 const stateAccent = (state) => {
   switch (state) {
-    case 'occupied': return '#059669';
-    case 'vacant': return '#D97706';
-    case 'online': return '#3B82F6';
-    case 'ended': return '#9CA3AF';
-    case 'upcoming': return '#8B0000';
-    default: return '#9CA3AF';
+    case 'occupied': return T.green;
+    case 'vacant': return T.amber;
+    case 'online': return T.blue;
+    case 'ended': return T.slate;
+    case 'ended_early': return '#C77700';
+    case 'upcoming': return T.crimson;
+    default: return T.slate;
+  }
+};
+
+const stateSoftBg = (state) => {
+  switch (state) {
+    case 'occupied': return T.greenSoft;
+    case 'vacant': return T.amberSoft;
+    case 'online': return T.blueSoft;
+    case 'ended': return T.slateSoft;
+    case 'ended_early': return T.amberSoft;
+    case 'upcoming': return '#FDECEC';
+    default: return T.slateSoft;
   }
 };
 
@@ -251,45 +297,24 @@ const stateAccent = (state) => {
 // Time-aware action gates
 // ------------------------------------------------------------
 const getAvailableActions = (cls, nowMin, todayCode) => {
-  // Ghosted
   if (cls.ghostReport) {
-    return {
-      canScan: false,
-      canNavigate: false,
-      canEndEarly: false,
-      canReportGhost: false,
-    };
+    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: false };
   }
-
-  // Online
   if (cls.isOnline) {
-    return {
-      canScan: false,
-      canNavigate: false,
-      canEndEarly: false,
-      canReportGhost: true,
-    };
+    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: true };
   }
 
   const start = timeToMinutes(cls.start_time);
   const end = timeToMinutes(cls.end_time);
 
   if (start === null || end === null) {
-    return {
-      canScan: false,
-      canNavigate: true,
-      canEndEarly: false,
-      canReportGhost: true,
-    };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: true };
   }
 
   const hasSession = !!cls.liveSession;
   const endedEarly = !!cls.liveSession?.ended_at;
-
-  // Not today → conservative defaults
   const isToday = cls.day === todayCode;
 
-  // If not today, no live restrictions (viewing future/past days)
   if (!isToday) {
     return {
       canScan: !hasSession,
@@ -299,52 +324,19 @@ const getAvailableActions = (cls, nowMin, todayCode) => {
     };
   }
 
-  // Class window already passed
   if (nowMin > end) {
-    return {
-      canScan: false,
-      canNavigate: false,
-      canEndEarly: false,
-      canReportGhost: !hasSession,
-    };
+    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: !hasSession };
   }
-
-  // Before class starts
   if (nowMin < start) {
-    return {
-      canScan: true,
-      canNavigate: true,
-      canEndEarly: false,
-      canReportGhost: true,
-    };
+    return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true };
   }
-
-  // Inside class window
   if (hasSession && !endedEarly) {
-    return {
-      canScan: false,
-      canNavigate: true,
-      canEndEarly: true,
-      canReportGhost: false,
-    };
+    return { canScan: false, canNavigate: true, canEndEarly: true, canReportGhost: false };
   }
-
   if (hasSession && endedEarly) {
-    return {
-      canScan: false,
-      canNavigate: true,
-      canEndEarly: false,
-      canReportGhost: false,
-    };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: false };
   }
-
-  // Inside window, no session yet
-  return {
-    canScan: true,
-    canNavigate: true,
-    canEndEarly: false,
-    canReportGhost: true,
-  };
+  return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true };
 };
 
 // ============================================================
@@ -363,10 +355,8 @@ const FacultyScheduleScreen = () => {
   const [selectedDay, setSelectedDay] = useState(getTodayCode());
   const [errorMessage, setErrorMessage] = useState(null);
 
-  // Modal
   const [detailClass, setDetailClass] = useState(null);
 
-  // Live clock
   const [nowTick, setNowTick] = useState(new Date());
   useEffect(() => {
     const t = setInterval(() => setNowTick(new Date()), 60000);
@@ -430,11 +420,7 @@ const FacultyScheduleScreen = () => {
         else scheduleData = data || [];
       }
 
-      if (
-        !scheduleErr &&
-        scheduleData.length === 0 &&
-        profProfile?.employee_id
-      ) {
+      if (!scheduleErr && scheduleData.length === 0 && profProfile?.employee_id) {
         const { data, error } = await supabase
           .from('schedules')
           .select(SCHEDULE_COLUMNS)
@@ -444,11 +430,7 @@ const FacultyScheduleScreen = () => {
         else scheduleData = data || [];
       }
 
-      if (
-        !scheduleErr &&
-        scheduleData.length === 0 &&
-        profProfile?.program
-      ) {
+      if (!scheduleErr && scheduleData.length === 0 && profProfile?.program) {
         const { data: userRow } = await supabase
           .from('users')
           .select('full_name')
@@ -522,10 +504,7 @@ const FacultyScheduleScreen = () => {
         .lte('scanned_at', endOfDay.toISOString());
 
       if (sessionsRes.error) {
-        console.warn(
-          '[FacultySchedule] room_sessions fetch:',
-          sessionsRes.error.message
-        );
+        console.warn('[FacultySchedule] room_sessions fetch:', sessionsRes.error.message);
       }
 
       const sessionMap = {};
@@ -663,7 +642,7 @@ const FacultyScheduleScreen = () => {
   };
 
   // ============================================================
-  // LOADING
+  // LOADING / ERROR
   // ============================================================
 
   if (loading) {
@@ -696,66 +675,90 @@ const FacultyScheduleScreen = () => {
   // ============================================================
 
   const selectedSchedules = schedulesByDay[selectedDay] || [];
+  const selectedDayFull = WEEK.find((w) => w.code === selectedDay)?.full;
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
+      {/* ==================== HEADER ==================== */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
+        <View style={styles.headerDecor} />
 
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={styles.headerEyebrow}>FACULTY</Text>
-          <Text style={styles.headerTitle}>My Schedule</Text>
+        <View style={styles.headerContent}>
+          <View style={styles.headerTopRow}>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={styles.backButton}
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+            >
+              <Text style={styles.backText}>‹</Text>
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, paddingLeft: 12 }}>
+              <Text style={styles.headerEyebrow}>FACULTY</Text>
+              <Text style={styles.headerTitle}>My Schedule</Text>
+            </View>
+
+            <View style={{ width: 34 }} />
+          </View>
+
           {semester && (
-            <Text style={styles.headerSemester} numberOfLines={1}>
-              {semester.name}
-            </Text>
+            <View style={styles.semesterRow}>
+              <View style={styles.semesterDot} />
+              <Text style={styles.semesterText} numberOfLines={1}>
+                {semester.name}
+              </Text>
+            </View>
           )}
         </View>
-
-        <View style={{ width: 60 }} />
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#FFFFFF"
+          />
         }
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{totalWeekClasses}</Text>
-            <Text style={styles.summaryLabel}>Total</Text>
+        {/* ==================== SUMMARY STRIP ==================== */}
+        <View style={styles.statStrip}>
+          <View style={styles.statBlock}>
+            <Text style={styles.statValue}>{totalWeekClasses}</Text>
+            <Text style={styles.statLabel}>TOTAL</Text>
           </View>
-          <View style={styles.summaryCard}>
-            <Text style={[styles.summaryValue, { color: COLORS.warning }]}>
+          <View style={styles.statDivider} />
+          <View style={styles.statBlock}>
+            <Text style={[styles.statValue, { color: T.amber }]}>
               {totalInPerson}
             </Text>
-            <Text style={styles.summaryLabel}>Face-to-Face</Text>
+            <Text style={styles.statLabel}>F2F</Text>
           </View>
-          <View style={styles.summaryCard}>
-            <Text style={[styles.summaryValue, { color: COLORS.online }]}>
+          <View style={styles.statDivider} />
+          <View style={styles.statBlock}>
+            <Text style={[styles.statValue, { color: T.blue }]}>
               {totalOnline}
             </Text>
-            <Text style={styles.summaryLabel}>Online</Text>
+            <Text style={styles.statLabel}>ONLINE</Text>
           </View>
           {totalReported > 0 && (
-            <View style={styles.summaryCard}>
-              <Text style={[styles.summaryValue, { color: COLORS.gray }]}>
-                {totalReported}
-              </Text>
-              <Text style={styles.summaryLabel}>Reported</Text>
-            </View>
+            <>
+              <View style={styles.statDivider} />
+              <View style={styles.statBlock}>
+                <Text style={[styles.statValue, { color: T.slate }]}>
+                  {totalReported}
+                </Text>
+                <Text style={styles.statLabel}>REPORTED</Text>
+              </View>
+            </>
           )}
         </View>
 
+        {/* ==================== DAY TABS ==================== */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -776,7 +779,7 @@ const FacultyScheduleScreen = () => {
                   isToday && !isSelected && styles.dayTabToday,
                 ]}
                 onPress={() => setSelectedDay(code)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
                 <Text
                   style={[
@@ -787,22 +790,15 @@ const FacultyScheduleScreen = () => {
                   {label}
                 </Text>
 
-                <View
+                <Text
                   style={[
-                    styles.dayTabBadge,
-                    isSelected && styles.dayTabBadgeActive,
-                    count === 0 && styles.dayTabBadgeEmpty,
+                    styles.dayTabCount,
+                    isSelected && styles.dayTabCountActive,
+                    count === 0 && !isSelected && styles.dayTabCountEmpty,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.dayTabBadgeText,
-                      isSelected && styles.dayTabBadgeTextActive,
-                    ]}
-                  >
-                    {count}
-                  </Text>
-                </View>
+                  {String(count).padStart(2, '0')}
+                </Text>
 
                 {isToday && (
                   <View
@@ -817,193 +813,215 @@ const FacultyScheduleScreen = () => {
           })}
         </ScrollView>
 
+        {/* ==================== SELECTED DAY HEADER ==================== */}
         <View style={styles.selectedDayHeader}>
-          <Text style={styles.selectedDayTitle}>
-            {WEEK.find((w) => w.code === selectedDay)?.full}
-          </Text>
-          {selectedDay === todayCode && (
-            <View style={styles.todayPill}>
-              <Text style={styles.todayPillText}>TODAY</Text>
-            </View>
-          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.selectedDayEyebrow}>
+              {selectedDay === todayCode ? 'TODAY' : 'SCHEDULE'}
+            </Text>
+            <Text style={styles.selectedDayTitle}>{selectedDayFull}</Text>
+          </View>
+
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>
+              {selectedSchedules.length}{' '}
+              {selectedSchedules.length === 1 ? 'class' : 'classes'}
+            </Text>
+          </View>
         </View>
 
+        {/* ==================== CLASS LIST ==================== */}
         {selectedSchedules.length === 0 ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyIcon}>☕</Text>
-            <Text style={styles.emptyTitle}>No classes</Text>
+            <View style={styles.emptyIconWrap}>
+              <Text style={styles.emptyIconText}>·</Text>
+            </View>
+            <Text style={styles.emptyTitle}>No classes scheduled</Text>
             <Text style={styles.emptyText}>
               {semester
-                ? `You have no scheduled classes on ${WEEK.find((w) => w.code === selectedDay)?.full}.`
+                ? `You have no classes on ${selectedDayFull}.`
                 : 'No active semester. Please contact the admin.'}
             </Text>
           </View>
         ) : (
-          selectedSchedules.map((schedule, index) => {
-            const isGhost = !!schedule.ghostReport;
-            const live = getLiveStatus(schedule, nowMin, todayCode);
+          <View style={styles.classList}>
+            {selectedSchedules.map((schedule, index) => {
+              const isGhost = !!schedule.ghostReport;
+              const live = getLiveStatus(schedule, nowMin, todayCode);
+              const accent = live
+                ? stateAccent(live.roomState)
+                : isGhost
+                ? T.slate
+                : T.crimson;
+              const isLast = index === selectedSchedules.length - 1;
 
-            return (
-              <TouchableOpacity
-                key={schedule.id}
-                style={[
-                  styles.classCard,
-                  index === 0 && styles.classCardFirst,
-                  isGhost && styles.classCardGhost,
-                ]}
-                activeOpacity={0.85}
-                onPress={() => setDetailClass(schedule)}
-              >
-                <View style={styles.classTimeCol}>
-                  <Text
-                    style={[
-                      styles.classStartTime,
-                      isGhost && styles.classStartTimeGhost,
-                    ]}
-                  >
-                    {formatTime(schedule.start_time)}
-                  </Text>
-                  <View style={styles.classTimeLine} />
-                  <Text
-                    style={[
-                      styles.classEndTime,
-                      isGhost && styles.classEndTimeGhost,
-                    ]}
-                  >
-                    {formatTime(schedule.end_time)}
-                  </Text>
-                  <Text style={styles.classDuration}>
-                    {formatDuration(schedule.start_time, schedule.end_time)}
-                  </Text>
-                </View>
+              return (
+                <TouchableOpacity
+                  key={schedule.id}
+                  style={[styles.classRow, !isLast && styles.classRowDivided]}
+                  activeOpacity={0.7}
+                  onPress={() => setDetailClass(schedule)}
+                >
+                  <View
+                    style={[styles.classRail, { backgroundColor: accent }]}
+                  />
 
-                <View style={styles.classInfoCol}>
-                  <View style={styles.classHeaderRow}>
+                  <View style={styles.classTimeCol}>
                     <Text
                       style={[
-                        styles.classSubject,
-                        isGhost && styles.classSubjectGhost,
+                        styles.classStartTime,
+                        isGhost && styles.classStartTimeGhost,
                       ]}
                     >
-                      {schedule.subject_code}
+                      {formatTime(schedule.start_time).replace(' ', '\n')}
                     </Text>
-
-                    {isGhost ? (
-                      <View
-                        style={[
-                          styles.modalityPill,
-                          schedule.ghostReport.is_excused === true
-                            ? styles.pillExcused
-                            : schedule.ghostReport.is_excused === false
-                            ? styles.pillUnexcused
-                            : styles.pillNeutral,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.modalityPillText,
-                            schedule.ghostReport.is_excused === true
-                              ? styles.pillTextExcused
-                              : schedule.ghostReport.is_excused === false
-                              ? styles.pillTextUnexcused
-                              : styles.pillTextNeutral,
-                          ]}
-                        >
-                          {schedule.ghostReport.is_excused === true
-                            ? '✓ EXCUSED'
-                            : schedule.ghostReport.is_excused === false
-                            ? '! UNEXCUSED'
-                            : '● CANCELLED'}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View
-                        style={[
-                          styles.modalityPill,
-                          schedule.isOnline
-                            ? styles.modalityOnline
-                            : styles.modalityF2F,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.modalityPillText,
-                            schedule.isOnline
-                              ? styles.modalityTextOnline
-                              : styles.modalityTextF2F,
-                          ]}
-                        >
-                          {schedule.isOnline ? '🌐 ONLINE' : '● F2F'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.classTitle,
-                      isGhost && styles.classTitleGhost,
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {schedule.course_title}
-                  </Text>
-
-                  <View style={styles.classMetaRow}>
-                    <Text style={styles.classMetaItem}>
-                      <Text style={styles.classMetaLabel}>Section: </Text>
-                      {schedule.section}
+                    <View style={styles.timeConnector} />
+                    <Text
+                      style={[
+                        styles.classEndTime,
+                        isGhost && styles.classEndTimeGhost,
+                      ]}
+                    >
+                      {formatTime(schedule.end_time).replace(' ', '\n')}
+                    </Text>
+                    <Text style={styles.classDuration}>
+                      {formatDuration(schedule.start_time, schedule.end_time)}
                     </Text>
                   </View>
 
-                  {isGhost ? (
-                    <View style={styles.ghostReasonBox}>
-                      <Text style={styles.ghostReasonLabel}>Reported as:</Text>
-                      <Text style={styles.ghostReasonValue}>
-                        {REASON_LABELS[schedule.ghostReport.reason] ||
-                          REASON_LABELS[schedule.ghostReport.excused_reason] ||
-                          schedule.ghostReport.reason}
+                  <View style={styles.classBody}>
+                    <View style={styles.classHeaderRow}>
+                      <Text
+                        style={[
+                          styles.classSubject,
+                          isGhost && styles.classSubjectGhost,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {schedule.subject_code}
                       </Text>
+
+                      {isGhost ? (
+                        <View
+                          style={[
+                            styles.tag,
+                            schedule.ghostReport.is_excused === true
+                              ? { backgroundColor: T.greenSoft }
+                              : schedule.ghostReport.is_excused === false
+                              ? { backgroundColor: T.amberSoft }
+                              : { backgroundColor: T.slateSoft },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.tagText,
+                              schedule.ghostReport.is_excused === true
+                                ? { color: T.green }
+                                : schedule.ghostReport.is_excused === false
+                                ? { color: T.amber }
+                                : { color: T.slate },
+                            ]}
+                          >
+                            {schedule.ghostReport.is_excused === true
+                              ? 'EXCUSED'
+                              : schedule.ghostReport.is_excused === false
+                              ? 'UNEXCUSED'
+                              : 'REPORTED'}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.tag,
+                            schedule.isOnline
+                              ? { backgroundColor: T.blueSoft }
+                              : { backgroundColor: T.amberSoft },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.tagText,
+                              schedule.isOnline
+                                ? { color: T.blue }
+                                : { color: T.amber },
+                            ]}
+                          >
+                            {schedule.isOnline ? 'ONLINE' : 'F2F'}
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                  ) : (
-                    <View style={styles.classMetaRow}>
-                      <Text style={styles.classMetaItem}>
-                        <Text style={styles.classMetaLabel}>Room: </Text>
+
+                    <Text
+                      style={[
+                        styles.classTitle,
+                        isGhost && styles.classTitleGhost,
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {schedule.course_title}
+                    </Text>
+
+                    <View style={styles.metaRow}>
+                      <Text style={styles.metaText} numberOfLines={1}>
+                        {schedule.section ? `${schedule.section} · ` : ''}
                         {schedule.isOnline
                           ? 'Online'
                           : schedule.room_name || '—'}
                       </Text>
                     </View>
-                  )}
 
-                  {live && (
-                    <View
-                      style={[
-                        styles.liveStatusBlock,
-                        {
-                          borderLeftColor: stateAccent(live.roomState),
-                          backgroundColor: stateAccent(live.roomState) + '14',
-                        },
-                      ]}
-                    >
-                      <Text
+                    {isGhost && (
+                      <View style={styles.ghostNote}>
+                        <Text style={styles.ghostNoteLabel}>REPORTED AS</Text>
+                        <Text style={styles.ghostNoteValue} numberOfLines={2}>
+                          {REASON_LABELS[schedule.ghostReport.reason] ||
+                            REASON_LABELS[
+                              schedule.ghostReport.excused_reason
+                            ] ||
+                            schedule.ghostReport.reason}
+                        </Text>
+                      </View>
+                    )}
+
+                    {live && !isGhost && (
+                      <View
                         style={[
-                          styles.liveStatusHeadline,
-                          { color: stateAccent(live.roomState) },
+                          styles.liveStatusRow,
+                          { borderLeftColor: stateAccent(live.roomState) },
                         ]}
                       >
-                        {live.icon}  {live.headline}
-                      </Text>
-                      <Text style={styles.liveStatusSubline}>{live.subline}</Text>
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })
+                        <View
+                          style={[
+                            styles.liveStatusDot,
+                            { backgroundColor: stateAccent(live.roomState) },
+                          ]}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.liveStatusHeadline,
+                              { color: stateAccent(live.roomState) },
+                            ]}
+                          >
+                            {live.headline}
+                          </Text>
+                          <Text style={styles.liveStatusSubline} numberOfLines={2}>
+                            {live.subline}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+
+                  <Text style={styles.chevron}>›</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 48 }} />
       </ScrollView>
 
       {/* ============================================================
@@ -1019,277 +1037,290 @@ const FacultyScheduleScreen = () => {
           <Pressable style={styles.modalSheet} onPress={() => {}}>
             <View style={styles.modalGrabber} />
 
-            {detailClass && (() => {
-              const live = getLiveStatus(detailClass, nowMin, todayCode);
-              const accent = live
-                ? stateAccent(live.roomState)
-                : stateAccent(
-                    detailClass.ghostReport ? 'ghost' : 'upcoming'
-                  );
-              const isGhost = !!detailClass.ghostReport;
-              const acts = getAvailableActions(
-                detailClass,
-                nowMin,
-                todayCode
-              );
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {detailClass && (() => {
+                const live = getLiveStatus(detailClass, nowMin, todayCode);
+                const accent = live
+                  ? stateAccent(live.roomState)
+                  : stateAccent(detailClass.ghostReport ? 'ghost' : 'upcoming');
+                const isGhost = !!detailClass.ghostReport;
+                const acts = getAvailableActions(detailClass, nowMin, todayCode);
 
-              return (
-                <>
-                  {/* HEADER */}
-                  <View style={styles.modalHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
-                      <Text style={styles.modalSubject}>
-                        {detailClass.subject_code}
-                      </Text>
-                      <Text style={styles.modalTitle} numberOfLines={2}>
-                        {detailClass.course_title}
-                      </Text>
+                return (
+                  <>
+                    {/* HEADER */}
+                    <View style={styles.modalHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
+                        <Text style={styles.modalSubject}>
+                          {detailClass.subject_code}
+                        </Text>
+                        <Text style={styles.modalTitle} numberOfLines={2}>
+                          {detailClass.course_title}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={closeDetail}
+                        style={styles.modalCloseBtn}
+                      >
+                        <Text style={styles.modalCloseText}>✕</Text>
+                      </TouchableOpacity>
                     </View>
 
-                    <TouchableOpacity
-                      onPress={closeDetail}
-                      style={styles.modalCloseBtn}
-                    >
-                      <Text style={styles.modalCloseText}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* BADGES */}
-                  <View style={styles.modalBadgesRow}>
-                    {isGhost ? (
-                      <View
-                        style={[
-                          styles.modalBadge,
-                          detailClass.ghostReport.is_excused === true
-                            ? styles.modalBadgeExcused
-                            : detailClass.ghostReport.is_excused === false
-                            ? styles.modalBadgeUnexcused
-                            : styles.modalBadgeNeutral,
-                        ]}
-                      >
-                        <Text
+                    {/* BADGES */}
+                    <View style={styles.modalBadgesRow}>
+                      {isGhost ? (
+                        <View
                           style={[
-                            styles.modalBadgeText,
+                            styles.modalBadge,
                             detailClass.ghostReport.is_excused === true
-                              ? styles.modalBadgeTextExcused
+                              ? { backgroundColor: T.greenSoft }
                               : detailClass.ghostReport.is_excused === false
-                              ? styles.modalBadgeTextUnexcused
-                              : styles.modalBadgeTextNeutral,
+                              ? { backgroundColor: T.amberSoft }
+                              : { backgroundColor: T.slateSoft },
                           ]}
                         >
-                          {detailClass.ghostReport.is_excused === true
-                            ? '✓ REPORTED · EXCUSED'
-                            : detailClass.ghostReport.is_excused === false
-                            ? '! REPORTED · UNEXCUSED'
-                            : '● REPORTED'}
-                        </Text>
-                      </View>
-                    ) : (
+                          <Text
+                            style={[
+                              styles.modalBadgeText,
+                              detailClass.ghostReport.is_excused === true
+                                ? { color: T.green }
+                                : detailClass.ghostReport.is_excused === false
+                                ? { color: T.amber }
+                                : { color: T.slate },
+                            ]}
+                          >
+                            {detailClass.ghostReport.is_excused === true
+                              ? 'REPORTED · EXCUSED'
+                              : detailClass.ghostReport.is_excused === false
+                              ? 'REPORTED · UNEXCUSED'
+                              : 'REPORTED'}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.modalBadge,
+                            detailClass.isOnline
+                              ? { backgroundColor: T.blueSoft }
+                              : { backgroundColor: T.amberSoft },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.modalBadgeText,
+                              detailClass.isOnline
+                                ? { color: T.blue }
+                                : { color: T.amber },
+                            ]}
+                          >
+                            {detailClass.isOnline ? 'ONLINE' : 'FACE-TO-FACE'}
+                          </Text>
+                        </View>
+                      )}
+
+                      {live && (
+                        <View
+                          style={[
+                            styles.modalStatusPill,
+                            { backgroundColor: stateSoftBg(live.roomState) },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.modalStatusPillText,
+                              { color: accent },
+                            ]}
+                          >
+                            {live.headline}
+                          </Text>
+                        </View>
+                      )}
+
                       <View
                         style={[
-                          styles.modalBadge,
-                          detailClass.isOnline
-                            ? styles.modalBadgeOnline
-                            : styles.modalBadgeF2F,
+                          styles.modalDayPill,
+                          { backgroundColor: T.slateSoft },
                         ]}
                       >
-                        <Text
-                          style={[
-                            styles.modalBadgeText,
-                            detailClass.isOnline
-                              ? styles.modalBadgeTextOnline
-                              : styles.modalBadgeTextF2F,
-                          ]}
-                        >
+                        <Text style={styles.modalDayPillText}>
+                          {WEEK.find((w) => w.code === detailClass.day)?.full ||
+                            detailClass.day}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* INFO GRID */}
+                    <View style={styles.modalGrid}>
+                      <View style={styles.modalGridItem}>
+                        <Text style={styles.modalGridLabel}>SECTION</Text>
+                        <Text style={styles.modalGridValue} numberOfLines={1}>
+                          {detailClass.section || '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.modalGridItem}>
+                        <Text style={styles.modalGridLabel}>ROOM</Text>
+                        <Text style={styles.modalGridValue} numberOfLines={1}>
                           {detailClass.isOnline
-                            ? '🌐 ONLINE'
-                            : '● FACE-TO-FACE'}
+                            ? 'Online'
+                            : detailClass.room_name || '—'}
                         </Text>
                       </View>
-                    )}
+                      <View style={styles.modalGridItem}>
+                        <Text style={styles.modalGridLabel}>START</Text>
+                        <Text style={styles.modalGridValue} numberOfLines={1}>
+                          {formatTime(detailClass.start_time)}
+                        </Text>
+                      </View>
+                      <View style={styles.modalGridItem}>
+                        <Text style={styles.modalGridLabel}>END</Text>
+                        <Text style={styles.modalGridValue} numberOfLines={1}>
+                          {formatTime(detailClass.end_time)}
+                        </Text>
+                      </View>
+                    </View>
 
+                    {/* LIVE STATUS */}
                     {live && (
-                      <View style={styles.modalStatusPill}>
-                        <Text
-                          style={[
-                            styles.modalStatusPillText,
-                            { color: accent },
-                          ]}
-                        >
-                          ● {live.headline}
+                      <View
+                        style={[
+                          styles.modalLiveBlock,
+                          { borderLeftColor: accent },
+                        ]}
+                      >
+                        <View style={styles.modalLiveHeader}>
+                          <Text
+                            style={[
+                              styles.modalLiveHeadline,
+                              { color: accent },
+                            ]}
+                          >
+                            {live.headline}
+                          </Text>
+                          {detailClass.liveSession?.scanned_at && (
+                            <Text
+                              style={[styles.modalLiveTime, { color: accent }]}
+                            >
+                              {formatVerifiedTime(
+                                detailClass.liveSession.scanned_at
+                              )}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={styles.modalLiveSubline}>
+                          {live.subline}
                         </Text>
                       </View>
                     )}
 
-                    <View style={styles.modalDayPill}>
-                      <Text style={styles.modalDayPillText}>
-                        {WEEK.find((w) => w.code === detailClass.day)?.full ||
-                          detailClass.day}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* INFO GRID */}
-                  <View style={styles.modalGrid}>
-                    <View style={styles.modalGridItem}>
-                      <Text style={styles.modalGridLabel}>SECTION</Text>
-                      <Text style={styles.modalGridValue} numberOfLines={1}>
-                        {detailClass.section || '—'}
-                      </Text>
-                    </View>
-                    <View style={styles.modalGridItem}>
-                      <Text style={styles.modalGridLabel}>ROOM</Text>
-                      <Text style={styles.modalGridValue} numberOfLines={1}>
-                        {detailClass.isOnline
-                          ? 'Online'
-                          : detailClass.room_name || '—'}
-                      </Text>
-                    </View>
-                    <View style={styles.modalGridItem}>
-                      <Text style={styles.modalGridLabel}>START</Text>
-                      <Text style={styles.modalGridValue} numberOfLines={1}>
-                        {formatTime(detailClass.start_time)}
-                      </Text>
-                    </View>
-                    <View style={styles.modalGridItem}>
-                      <Text style={styles.modalGridLabel}>END</Text>
-                      <Text style={styles.modalGridValue} numberOfLines={1}>
-                        {formatTime(detailClass.end_time)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* LIVE STATUS */}
-                  {live && (
-                    <View
-                      style={[
-                        styles.modalLiveBlock,
-                        {
-                          borderLeftColor: accent,
-                          backgroundColor: accent + '14',
-                        },
-                      ]}
-                    >
-                      <View style={styles.modalLiveHeader}>
-                        <Text
-                          style={[styles.modalLiveHeadline, { color: accent }]}
-                        >
-                          {live.icon}  {live.headline}
+                    {/* GHOST DETAILS */}
+                    {isGhost && (
+                      <View style={styles.modalGhostBox}>
+                        <Text style={styles.modalGhostLabel}>
+                          REPORT DETAILS
                         </Text>
-                        {detailClass.liveSession?.scanned_at && (
-                          <Text
-                            style={[styles.modalLiveTime, { color: accent }]}
-                          >
-                            {formatVerifiedTime(
-                              detailClass.liveSession.scanned_at
-                            )}
+                        <Text style={styles.modalGhostCause}>
+                          Cause:{' '}
+                          {CAUSE_LABELS[detailClass.ghostReport.cause] ||
+                            detailClass.ghostReport.cause}
+                        </Text>
+                        <Text style={styles.modalGhostReason}>
+                          Reason:{' '}
+                          {REASON_LABELS[detailClass.ghostReport.reason] ||
+                            REASON_LABELS[
+                              detailClass.ghostReport.excused_reason
+                            ] ||
+                            detailClass.ghostReport.reason}
+                        </Text>
+                        {!!detailClass.ghostReport.notes && (
+                          <Text style={styles.modalGhostNotes}>
+                            "{detailClass.ghostReport.notes}"
                           </Text>
                         )}
                       </View>
-                      <Text style={styles.modalLiveSubline}>{live.subline}</Text>
-                    </View>
-                  )}
+                    )}
 
-                  {/* GHOST DETAILS */}
-                  {isGhost && (
-                    <View style={styles.modalGhostBox}>
-                      <Text style={styles.modalGhostLabel}>REPORT DETAILS</Text>
-                      <Text style={styles.modalGhostCause}>
-                        Cause:{' '}
-                        {CAUSE_LABELS[detailClass.ghostReport.cause] ||
-                          detailClass.ghostReport.cause}
-                      </Text>
-                      <Text style={styles.modalGhostReason}>
-                        Reason:{' '}
-                        {REASON_LABELS[detailClass.ghostReport.reason] ||
-                          REASON_LABELS[
-                            detailClass.ghostReport.excused_reason
-                          ] ||
-                          detailClass.ghostReport.reason}
-                      </Text>
-                      {!!detailClass.ghostReport.notes && (
-                        <Text style={styles.modalGhostNotes}>
-                          "{detailClass.ghostReport.notes}"
-                        </Text>
-                      )}
-                    </View>
-                  )}
-
-                  {/* ACTIONS — time-aware */}
-                  {!isGhost && (
-                    <View style={styles.modalActions}>
-                      {acts.canNavigate && (
-                        <TouchableOpacity
-                          style={styles.modalSecondaryBtn}
-                          onPress={() => handleNavigate(detailClass)}
-                        >
-                          <Text style={styles.modalSecondaryBtnText}>
-                            ↗ Navigate
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {acts.canEndEarly && (
-                        <TouchableOpacity
-                          style={styles.modalEndEarlyBtn}
-                          onPress={() => handleEndClassEarly(detailClass)}
-                        >
-                          <Text style={styles.modalEndEarlyBtnText}>
-                            ⏹ End Class Early
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {acts.canScan && (
-                        <TouchableOpacity
-                          style={styles.modalPrimaryBtn}
-                          onPress={() => handleScanQR(detailClass)}
-                        >
-                          <Text style={styles.modalPrimaryBtnText}>
-                            ▣ Scan QR
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {acts.canReportGhost && (
-                        <TouchableOpacity
-                          style={styles.modalGhostLinkInline}
-                          onPress={() => handleReportGhost(detailClass)}
-                        >
-                          <Text style={styles.modalGhostLinkInlineText}>
-                            ⚠ Report this class as cancelled / not attended
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {!acts.canScan &&
-                        !acts.canEndEarly &&
-                        !acts.canReportGhost &&
-                        !acts.canNavigate && (
+                    {/* ACTIONS */}
+                    {!isGhost && (
+                      <View style={styles.modalActions}>
+                        {acts.canNavigate && (
                           <TouchableOpacity
-                            style={styles.modalPrimaryBtn}
-                            onPress={closeDetail}
+                            style={styles.modalSecondaryBtn}
+                            onPress={() => handleNavigate(detailClass)}
                           >
-                            <Text style={styles.modalPrimaryBtnText}>
-                              Close
+                            <Text style={styles.modalSecondaryBtnText}>
+                              Navigate
                             </Text>
                           </TouchableOpacity>
                         )}
-                    </View>
-                  )}
 
-                  {isGhost && (
-                    <TouchableOpacity
-                      style={styles.modalPrimaryBtn}
-                      onPress={closeDetail}
-                    >
-                      <Text style={styles.modalPrimaryBtnText}>Close</Text>
-                    </TouchableOpacity>
-                  )}
-                </>
-              );
-            })()}
+                        {acts.canEndEarly && (
+                          <TouchableOpacity
+                            style={styles.modalEndEarlyBtn}
+                            onPress={() => handleEndClassEarly(detailClass)}
+                          >
+                            <Text style={styles.modalEndEarlyBtnText}>
+                              End Class Early
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {acts.canScan && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={() => handleScanQR(detailClass)}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>
+                              Scan QR
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {acts.canReportGhost && (
+                          <TouchableOpacity
+                            style={styles.modalGhostLinkInline}
+                            onPress={() => handleReportGhost(detailClass)}
+                          >
+                            <Text style={styles.modalGhostLinkInlineText}>
+                              Report this class as cancelled / not attended
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {!acts.canScan &&
+                          !acts.canEndEarly &&
+                          !acts.canReportGhost &&
+                          !acts.canNavigate && (
+                            <TouchableOpacity
+                              style={styles.modalPrimaryBtn}
+                              onPress={closeDetail}
+                            >
+                              <Text style={styles.modalPrimaryBtnText}>
+                                Close
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                      </View>
+                    )}
+
+                    {isGhost && (
+                      <TouchableOpacity
+                        style={styles.modalPrimaryBtn}
+                        onPress={closeDetail}
+                      >
+                        <Text style={styles.modalPrimaryBtnText}>Close</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                );
+              })()}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1303,91 +1334,68 @@ const FacultyScheduleScreen = () => {
 
 const FacultyScheduleSkeleton = () => (
   <View style={styles.container}>
-    <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+    <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
     <View style={styles.header}>
-      <Skeleton width={60} height={22} radius={6} />
-      <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-        <Skeleton width={50} height={10} radius={4} />
-        <Skeleton width={130} height={18} radius={6} />
-        <Skeleton width={150} height={11} radius={4} />
+      <View style={styles.headerContent}>
+        <View style={styles.headerTopRow}>
+          <Skeleton width={34} height={34} radius={17} />
+          <View style={{ flex: 1, paddingLeft: 12, gap: 6 }}>
+            <Skeleton width={60} height={9} radius={3} />
+            <Skeleton width={140} height={18} radius={4} />
+          </View>
+          <View style={{ width: 34 }} />
+        </View>
       </View>
-      <View style={{ width: 60 }} />
     </View>
 
     <View style={styles.scrollContent}>
-      <View style={styles.summaryRow}>
+      <View style={styles.statStrip}>
         {[1, 2, 3].map((i) => (
-          <View key={i} style={styles.summaryCard}>
-            <Skeleton width={30} height={22} radius={6} />
-            <Skeleton width={60} height={10} radius={4} style={{ marginTop: 8 }} />
+          <View
+            key={i}
+            style={[
+              styles.statBlock,
+              i < 3 && { borderRightWidth: 1, borderRightColor: T.hair2 },
+            ]}
+          >
+            <Skeleton width={34} height={22} radius={4} />
+            <Skeleton width={50} height={9} radius={3} style={{ marginTop: 8 }} />
           </View>
         ))}
       </View>
 
       <View style={{ flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 16 }}>
         {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-          <Skeleton key={i} width={64} height={62} radius={14} />
+          <Skeleton key={i} width={60} height={72} radius={12} />
         ))}
       </View>
 
-      <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 }}>
-        <Skeleton width={130} height={20} radius={6} />
+      <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14 }}>
+        <Skeleton width={80} height={9} radius={3} />
+        <Skeleton width={130} height={22} radius={4} style={{ marginTop: 6 }} />
       </View>
 
       {[1, 2, 3].map((i) => (
-        <View key={i} style={styles.classCard}>
-          <View style={styles.classTimeCol}>
-            <Skeleton width={50} height={14} radius={4} />
-            <Skeleton
-              width={2}
-              height={10}
-              radius={1}
-              style={{ marginTop: 8, marginLeft: 4 }}
-            />
-            <Skeleton
-              width={50}
-              height={13}
-              radius={4}
-              style={{ marginTop: 8 }}
-            />
-            <Skeleton
-              width={40}
-              height={10}
-              radius={4}
-              style={{ marginTop: 8 }}
-            />
+        <View
+          key={i}
+          style={{
+            flexDirection: 'row',
+            paddingHorizontal: 16,
+            paddingVertical: 16,
+            borderBottomWidth: 1,
+            borderBottomColor: T.hair2,
+          }}
+        >
+          <View style={{ width: 56 }}>
+            <Skeleton width={44} height={14} radius={3} />
+            <Skeleton width={44} height={14} radius={3} style={{ marginTop: 12 }} />
           </View>
-          <View style={styles.classInfoCol}>
-            <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                marginBottom: 8,
-              }}
-            >
-              <Skeleton width={70} height={14} radius={4} />
-              <Skeleton width={60} height={18} radius={6} />
-            </View>
-            <Skeleton width="85%" height={14} radius={4} />
-            <Skeleton
-              width="40%"
-              height={12}
-              radius={4}
-              style={{ marginTop: 10 }}
-            />
-            <Skeleton
-              width="45%"
-              height={12}
-              radius={4}
-              style={{ marginTop: 6 }}
-            />
-            <Skeleton
-              width="100%"
-              height={54}
-              radius={8}
-              style={{ marginTop: 14 }}
-            />
+          <View style={{ flex: 1, paddingLeft: 12 }}>
+            <Skeleton width={70} height={14} radius={4} />
+            <Skeleton width="85%" height={14} radius={4} style={{ marginTop: 8 }} />
+            <Skeleton width="55%" height={12} radius={4} style={{ marginTop: 8 }} />
+            <Skeleton width="100%" height={40} radius={8} style={{ marginTop: 12 }} />
           </View>
         </View>
       ))}
@@ -1400,314 +1408,446 @@ const FacultyScheduleSkeleton = () => (
 // ============================================================
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1, backgroundColor: T.canvas },
+
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 30,
-    backgroundColor: COLORS.background,
+    backgroundColor: T.canvas,
   },
-  loadingText: { marginTop: 12, color: COLORS.gray, fontSize: 14 },
+  loadingText: { marginTop: 12, color: T.inkMuted, fontSize: 14 },
 
   errorIconWrap: {
     width: 60, height: 60, borderRadius: 30,
-    backgroundColor: '#FDECEC', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FDECEC',
+    alignItems: 'center', justifyContent: 'center',
     marginBottom: 16,
   },
-  errorIcon: { fontSize: 28, fontWeight: '700', color: COLORS.primary },
-  errorTitle: { fontSize: 20, fontWeight: '700', color: COLORS.black, marginBottom: 8, textAlign: 'center' },
-  errorText: { fontSize: 14, color: COLORS.gray, textAlign: 'center', lineHeight: 20 },
+  errorIcon: { fontSize: 28, fontWeight: '900', color: T.crimson },
+  errorTitle: {
+    fontSize: 20, fontWeight: '900', color: T.ink,
+    marginBottom: 8, textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 14, color: T.inkMuted,
+    textAlign: 'center', lineHeight: 20,
+  },
   errorRetryButton: {
     marginTop: 20, paddingHorizontal: 20, paddingVertical: 12,
-    borderRadius: 10, backgroundColor: COLORS.primary,
+    borderRadius: 10, backgroundColor: T.crimson,
   },
-  errorRetryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  errorRetryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
 
+  // ==================== HEADER ====================
   header: {
+    backgroundColor: T.crimson,
+    paddingTop: 54,
+    paddingBottom: 22,
+    overflow: 'hidden',
+  },
+  headerDecor: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: T.crimsonLight,
+    opacity: 0.4,
+  },
+  headerContent: {
+    paddingHorizontal: 20,
+  },
+  headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 54,
-    paddingBottom: 16,
-    backgroundColor: COLORS.primary,
   },
-  backButton: { width: 60 },
-  backText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  headerEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    color: '#FFFFFF',
-    opacity: 0.7,
-    marginBottom: 2,
+  backButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
-  headerSemester: {
-    fontSize: 11,
+  backText: {
     color: '#FFFFFF',
-    opacity: 0.75,
-    marginTop: 2,
+    fontSize: 22,
     fontWeight: '600',
+    lineHeight: 22,
+    marginTop: -4,
+  },
+  headerEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#FFFFFF',
+    opacity: 0.65,
+    marginBottom: 4,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  semesterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    gap: 7,
+  },
+  semesterDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7CFC9E',
+  },
+  semesterText: {
+    fontSize: 10,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
 
   scrollContent: { paddingBottom: 20 },
 
-  summaryRow: {
+  // ==================== STAT STRIP ====================
+  statStrip: {
     flexDirection: 'row',
-    padding: 16,
-    gap: 10,
-  },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.surface,
+    marginTop: 16,
+    marginHorizontal: 16,
     borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: T.hair,
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+    overflow: 'hidden',
   },
-  summaryValue: {
+  statBlock: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: T.hair2,
+    marginVertical: 12,
+  },
+  statValue: {
     fontSize: 22,
     fontWeight: '900',
-    color: COLORS.primary,
+    color: T.crimson,
+    letterSpacing: -0.6,
+    fontVariant: ['tabular-nums'],
   },
-  summaryLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: COLORS.gray,
-    marginTop: 4,
-    textAlign: 'center',
-    letterSpacing: 0.3,
+  statLabel: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: T.inkFaint,
+    marginTop: 3,
+    letterSpacing: 1.4,
   },
 
-  dayTabsScroll: { maxHeight: 80 },
+  // ==================== DAY TABS ====================
+  dayTabsScroll: { maxHeight: 96, marginTop: 20 },
   dayTabsContent: { paddingHorizontal: 16, gap: 8 },
   dayTab: {
-    minWidth: 64,
-    paddingVertical: 10,
+    minWidth: 62,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    backgroundColor: T.surface,
     alignItems: 'center',
-    justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: 'transparent',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    borderColor: T.hair,
     position: 'relative',
   },
-  dayTabActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  dayTabToday: { borderColor: COLORS.primary },
+  dayTabActive: {
+    backgroundColor: T.crimson,
+    borderColor: T.crimson,
+  },
+  dayTabToday: {
+    borderColor: '#F3C6C6',
+  },
   dayTabLabel: {
     fontSize: 12,
     fontWeight: '800',
-    color: COLORS.black,
-    marginBottom: 6,
+    color: T.inkSoft,
+    marginBottom: 8,
+    letterSpacing: -0.1,
   },
   dayTabLabelActive: { color: '#FFFFFF' },
-  dayTabBadge: {
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 6,
-    borderRadius: 11,
-    backgroundColor: '#F0F0F2',
-    alignItems: 'center',
-    justifyContent: 'center',
+  dayTabCount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+    fontVariant: ['tabular-nums'],
   },
-  dayTabBadgeActive: { backgroundColor: '#FFFFFF' },
-  dayTabBadgeEmpty: { opacity: 0.4 },
-  dayTabBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.gray,
-  },
-  dayTabBadgeTextActive: { color: COLORS.primary },
+  dayTabCountActive: { color: '#FFFFFF' },
+  dayTabCountEmpty: { color: T.inkFaint, opacity: 0.6 },
   todayDot: {
     position: 'absolute',
-    bottom: 4,
+    bottom: 5,
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: COLORS.primary,
+    backgroundColor: T.crimson,
   },
   todayDotActive: { backgroundColor: '#FFFFFF' },
 
+  // ==================== SELECTED DAY HEADER ====================
   selectedDayHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
+    paddingTop: 26,
+    paddingBottom: 12,
     gap: 10,
   },
-  selectedDayTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.black,
-  },
-  todayPill: {
-    backgroundColor: '#FFF5F5',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  todayPillText: {
+  selectedDayEyebrow: {
     fontSize: 9,
     fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 1,
+    letterSpacing: 2.2,
+    color: T.crimson,
+    marginBottom: 5,
+  },
+  selectedDayTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+  },
+  countPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+  },
+  countPillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: T.inkMuted,
+    letterSpacing: 0.6,
   },
 
-  classCard: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+  // ==================== CLASS LIST ====================
+  classList: {
     marginHorizontal: 16,
-    marginBottom: 12,
+    backgroundColor: T.surface,
     borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: T.hair,
+    overflow: 'hidden',
   },
-  classCardFirst: { borderTopWidth: 0 },
-  classCardGhost: {
-    backgroundColor: '#FAFAFA',
-    borderLeftWidth: 4,
-    borderLeftColor: '#9CA3AF',
-    opacity: 0.95,
+  classRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    paddingVertical: 16,
+    paddingRight: 14,
   },
-
+  classRowDivided: {
+    borderBottomWidth: 1,
+    borderBottomColor: T.hair2,
+  },
+  classRail: {
+    width: 3,
+    marginRight: 12,
+    borderRadius: 2,
+  },
   classTimeCol: {
-    width: 76,
+    width: 62,
     alignItems: 'flex-start',
-    paddingRight: 12,
-    borderRightWidth: 1,
-    borderRightColor: '#F0F0F2',
+    paddingRight: 8,
+    paddingTop: 2,
   },
   classStartTime: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
-    color: COLORS.primary,
+    color: T.crimson,
+    lineHeight: 14,
+    letterSpacing: -0.2,
   },
   classStartTimeGhost: {
-    color: '#9CA3AF',
+    color: T.inkFaint,
     textDecorationLine: 'line-through',
   },
-  classTimeLine: {
-    width: 2,
-    height: 10,
-    backgroundColor: '#E5E5E7',
-    marginLeft: 4,
-    marginVertical: 3,
-    borderRadius: 1,
+  timeConnector: {
+    width: 1,
+    height: 14,
+    backgroundColor: T.hair,
+    marginLeft: 2,
+    marginVertical: 4,
   },
-  classEndTime: { fontSize: 12, fontWeight: '700', color: COLORS.black },
-  classEndTimeGhost: { color: '#9CA3AF' },
+  classEndTime: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.inkSoft,
+    lineHeight: 14,
+  },
+  classEndTimeGhost: { color: T.inkFaint },
   classDuration: {
-    fontSize: 10,
-    color: COLORS.gray,
+    fontSize: 9,
+    color: T.inkFaint,
     marginTop: 6,
-    fontStyle: 'italic',
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
-
-  classInfoCol: { flex: 1, paddingLeft: 12 },
+  classBody: { flex: 1, paddingRight: 6 },
   classHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 6,
+    gap: 8,
   },
-  classSubject: { fontSize: 14, fontWeight: '900', color: COLORS.black },
-  classSubjectGhost: { color: '#6B7280' },
-
-  modalityPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  modalityOnline: { backgroundColor: COLORS.onlineBg },
-  modalityF2F: { backgroundColor: COLORS.f2fBg },
-  pillExcused: { backgroundColor: COLORS.excusedBg },
-  pillUnexcused: { backgroundColor: COLORS.unexcusedBg },
-  pillNeutral: { backgroundColor: COLORS.neutralBg },
-  modalityPillText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.3 },
-  modalityTextOnline: { color: COLORS.online },
-  modalityTextF2F: { color: COLORS.warning },
-  pillTextExcused: { color: COLORS.success },
-  pillTextUnexcused: { color: COLORS.warning },
-  pillTextNeutral: { color: COLORS.gray },
-
-  classTitle: {
+  classSubject: {
     fontSize: 13,
-    color: COLORS.black,
-    fontWeight: '600',
-    marginBottom: 8,
-    lineHeight: 18,
+    fontWeight: '900',
+    color: T.crimson,
+    letterSpacing: 0.2,
+    flex: 1,
   },
-  classTitleGhost: { color: '#6B7280' },
-
-  classMetaRow: {
+  classSubjectGhost: { color: T.slate },
+  tag: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  tagText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  classTitle: {
+    fontSize: 14,
+    color: T.ink,
+    fontWeight: '600',
+    lineHeight: 19,
+    marginBottom: 6,
+  },
+  classTitleGhost: {
+    color: T.inkMuted,
+    textDecorationLine: 'line-through',
+  },
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
+    marginTop: 2,
   },
-  classMetaItem: { fontSize: 12, color: COLORS.gray },
-  classMetaLabel: { color: '#B0B0B5', fontWeight: '600' },
+  metaText: {
+    fontSize: 11,
+    color: T.inkMuted,
+    fontWeight: '500',
+    flex: 1,
+  },
 
-  ghostReasonBox: {
-    backgroundColor: '#F5F5F7',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginTop: 6,
-    marginBottom: 4,
+  ghostNote: {
+    marginTop: 10,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: T.slate,
   },
-  ghostReasonLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    color: COLORS.gray,
-    marginBottom: 1,
+  ghostNoteLabel: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    color: T.inkFaint,
+    marginBottom: 3,
   },
-  ghostReasonValue: {
+  ghostNoteValue: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#4B5563',
+    color: T.inkSoft,
   },
 
-  liveStatusBlock: {
-    marginTop: 8,
-    marginBottom: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderLeftWidth: 4,
-    borderRadius: 8,
+  liveStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 12,
+    paddingLeft: 10,
+    borderLeftWidth: 3,
+    gap: 8,
   },
-  liveStatusHeadline: { fontSize: 12, fontWeight: '900', letterSpacing: 0.3 },
-  liveStatusSubline: { fontSize: 11, color: '#4B5563', marginTop: 3, fontWeight: '500' },
+  liveStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 5,
+  },
+  liveStatusHeadline: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginBottom: 3,
+  },
+  liveStatusSubline: {
+    fontSize: 11,
+    color: T.inkMuted,
+    fontWeight: '500',
+    lineHeight: 15,
+  },
+
+  chevron: {
+    fontSize: 22,
+    color: T.inkFaint,
+    fontWeight: '300',
+    alignSelf: 'center',
+    paddingLeft: 6,
+    lineHeight: 22,
+  },
 
   emptyCard: {
-    margin: 16,
+    marginHorizontal: 16,
     padding: 40,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    backgroundColor: T.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: T.hair,
     alignItems: 'center',
   },
-  emptyIcon: { fontSize: 36, marginBottom: 12 },
+  emptyIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: T.hair2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyIconText: {
+    fontSize: 34,
+    color: T.inkFaint,
+    lineHeight: 30,
+    marginTop: -6,
+  },
   emptyTitle: {
     fontSize: 16,
-    fontWeight: '800',
-    color: COLORS.black,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.2,
     marginBottom: 6,
   },
   emptyText: {
     fontSize: 13,
-    color: COLORS.gray,
+    color: T.inkMuted,
     textAlign: 'center',
     lineHeight: 19,
   },
@@ -1721,25 +1861,23 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 22,
+    backgroundColor: T.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingTop: 8,
-    paddingBottom: 32,
-    maxHeight: '88%',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 20,
+    maxHeight: '90%',
+    overflow: 'hidden',
+  },
+  modalScrollContent: {
+    paddingHorizontal: 22,
+    paddingBottom: 40,
   },
   modalGrabber: {
     alignSelf: 'center',
     width: 44,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#D1D5DB',
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D4D4D8',
     marginBottom: 16,
   },
   modalHeader: {
@@ -1749,22 +1887,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalEyebrow: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1.5,
-    color: '#8B0000',
-    marginBottom: 4,
+    letterSpacing: 2,
+    color: T.crimson,
+    marginBottom: 6,
   },
   modalSubject: {
     fontSize: 26,
     fontWeight: '900',
-    color: '#1A1A1A',
-    letterSpacing: -0.4,
+    color: T.ink,
+    letterSpacing: -0.6,
   },
   modalTitle: {
     fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '600',
+    color: T.inkMuted,
+    fontWeight: '500',
     marginTop: 4,
     lineHeight: 19,
   },
@@ -1772,17 +1910,15 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F5F5F7',
+    backgroundColor: T.hair2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalCloseText: {
-    fontSize: 15,
-    color: '#6B7280',
+    fontSize: 14,
+    color: T.inkSoft,
     fontWeight: '700',
-    lineHeight: 16,
   },
-
   modalBadgesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1790,50 +1926,43 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
-  modalBadgeF2F: { backgroundColor: '#FEF3C7' },
-  modalBadgeOnline: { backgroundColor: '#DBEAFE' },
-  modalBadgeExcused: { backgroundColor: '#EAF6EC' },
-  modalBadgeUnexcused: { backgroundColor: '#FFF6E0' },
-  modalBadgeNeutral: { backgroundColor: '#F3F4F6' },
-  modalBadgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.4 },
-  modalBadgeTextF2F: { color: '#C77700' },
-  modalBadgeTextOnline: { color: '#1E88E5' },
-  modalBadgeTextExcused: { color: '#059669' },
-  modalBadgeTextUnexcused: { color: '#C77700' },
-  modalBadgeTextNeutral: { color: '#6B7280' },
+  modalBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
   modalStatusPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F7',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   modalStatusPillText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 0.4,
+    letterSpacing: 0.6,
   },
   modalDayPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F7',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   modalDayPillText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 0.4,
-    color: '#4B5563',
+    letterSpacing: 0.6,
+    color: T.inkSoft,
   },
-
   modalGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    backgroundColor: '#F7F5F2',
-    borderRadius: 14,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
     padding: 14,
     marginBottom: 16,
     gap: 4,
@@ -1842,21 +1971,20 @@ const styles = StyleSheet.create({
   modalGridLabel: {
     fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1,
-    color: '#9A9A9E',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
     marginBottom: 3,
   },
   modalGridValue: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#1A1A1A',
+    color: T.ink,
+    letterSpacing: -0.1,
   },
-
   modalLiveBlock: {
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderLeftWidth: 4,
-    borderRadius: 12,
+    paddingLeft: 12,
+    paddingVertical: 4,
+    borderLeftWidth: 3,
     marginBottom: 16,
   },
   modalLiveHeader: {
@@ -1865,103 +1993,117 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
-  modalLiveHeadline: { fontSize: 13, fontWeight: '900', letterSpacing: 0.3 },
+  modalLiveHeadline: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
   modalLiveTime: { fontSize: 11, fontWeight: '800' },
   modalLiveSubline: {
     fontSize: 12,
-    color: '#4B5563',
+    color: T.inkSoft,
     fontWeight: '500',
     lineHeight: 17,
   },
-
   modalGhostBox: {
-    backgroundColor: '#F7F5F2',
+    backgroundColor: '#FAFAFA',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
     padding: 14,
     marginBottom: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#9CA3AF',
+    borderLeftWidth: 3,
+    borderLeftColor: T.slate,
   },
   modalGhostLabel: {
     fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1,
-    color: '#9A9A9E',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
     marginBottom: 6,
   },
   modalGhostCause: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1A1A1A',
+    color: T.ink,
     marginBottom: 3,
   },
   modalGhostReason: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1A1A1A',
+    color: T.ink,
     marginBottom: 6,
   },
   modalGhostNotes: {
     fontSize: 12,
-    color: '#6B7280',
+    color: T.inkMuted,
     fontStyle: 'italic',
     lineHeight: 17,
     marginTop: 4,
   },
-
   modalActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+    marginTop: 4,
   },
   modalPrimaryBtn: {
-    flex: 1,
-    minWidth: 120,
-    backgroundColor: '#8B0000',
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 140,
+    backgroundColor: T.crimson,
     paddingVertical: 15,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     alignItems: 'center',
-    shadowColor: '#8B0000',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    justifyContent: 'center',
   },
   modalPrimaryBtnText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 0.3,
+    textAlign: 'center',
   },
   modalSecondaryBtn: {
-    flex: 1,
-    minWidth: 120,
-    backgroundColor: '#F5F5F7',
-    paddingVertical: 15,
-    borderRadius: 14,
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 110,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   modalSecondaryBtnText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    letterSpacing: 0.3,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
   modalEndEarlyBtn: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '48%',
     minWidth: 140,
-    backgroundColor: '#FFF8F0',
+    backgroundColor: '#FFFAF0',
     borderWidth: 1.5,
     borderColor: '#C77700',
-    paddingVertical: 15,
-    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   modalEndEarlyBtnText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#C77700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
   modalGhostLinkInline: {
     flexBasis: '100%',

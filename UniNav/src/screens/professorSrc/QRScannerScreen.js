@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
   Vibration,
+  useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
@@ -19,20 +20,50 @@ import {
   normalizeText,
 } from '../../utils/scheduleHelpers';
 
+// ============================================================
+// DESIGN TOKENS
+// ============================================================
+
+const T = {
+  crimson: '#8B0000',
+  crimsonLight: '#A61B1B',
+  ink: '#0B0B0D',
+  inkSoft: '#3F3F46',
+  inkMuted: '#71717A',
+  inkFaint: '#A1A1AA',
+  hair: '#E7E7E9',
+  hair2: '#F1F1F3',
+  canvas: '#F2F2F4',
+  surface: '#FFFFFF',
+  green: '#0F7A4A',
+  greenSoft: '#ECFDF5',
+  amber: '#B45309',
+  amberSoft: '#FEF3C7',
+  red: '#9F1239',
+  redSoft: '#FCE7F3',
+  blue: '#1D4ED8',
+  blueSoft: '#DBEAFE',
+  slate: '#94A3B8',
+  slateSoft: '#F1F5F9',
+};
+
 const COLORS = {
-  primary: '#8B0000',
+  primary: T.crimson,
   white: '#FFFFFF',
-  black: '#1C1C1E',
-  gray: '#9A9A9E',
-  lightGray: '#E8E5DF',
-  background: '#F7F5F2',
-  success: '#2E8B22',
-  error: '#B00020',
-  warning: '#B26A00',
+  black: T.ink,
+  gray: T.inkMuted,
+  lightGray: T.hair,
+  background: T.canvas,
+  success: T.green,
+  error: T.red,
+  warning: T.amber,
 };
 
 // Minutes before start_time that a professor may already scan in
 const GRACE_MINUTES = 15;
+
+// Fixed scan window size (square)
+const FRAME_SIZE = 260;
 
 // ============================================================
 // ERROR HANDLING
@@ -122,6 +153,7 @@ const QRScannerScreen = () => {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const { user } = useAuth();
+  const { width: screenW, height: screenH } = useWindowDimensions();
 
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(true);
@@ -130,6 +162,13 @@ const QRScannerScreen = () => {
   const [mountCamera, setMountCamera] = useState(false);
 
   const lockRef = useRef(false);
+
+  // Compute the scan window's exact pixel position so it's always centered
+  const half = FRAME_SIZE / 2;
+  const frameTop = screenH / 2 - half;
+  const frameBottom = screenH / 2 + half;
+  const frameLeft = screenW / 2 - half;
+  const sideW = Math.max(0, frameLeft);
 
   // Black-preview fix (Android)
   useEffect(() => {
@@ -318,11 +357,8 @@ const QRScannerScreen = () => {
         );
       }
 
-      // 5. Determine class type (scanning physical QR = in-person)
       const classType = 'in-person';
 
-      // 6. Save the room session.
-      //    scanned_at is auto-populated by the DB default.
       const { error: insertError } = await supabase
         .from('room_sessions')
         .insert({
@@ -387,20 +423,30 @@ const QRScannerScreen = () => {
   if (!permission) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color={T.crimson} />
       </View>
     );
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.permTitle}>Camera Permission Required</Text>
-        <Text style={styles.permText}>
-          UniNav needs camera access to scan classroom QR codes.
+      <View style={styles.permissionRoot}>
+        <View style={styles.permissionIconWrap}>
+          <View style={styles.permissionIconRing} />
+          <View style={styles.permissionIconDot} />
+        </View>
+        <Text style={styles.permissionEyebrow}>CAMERA ACCESS</Text>
+        <Text style={styles.permissionTitle}>Permission required</Text>
+        <Text style={styles.permissionText}>
+          UniNav needs camera access to scan the classroom QR code posted
+          on the door.
         </Text>
-        <TouchableOpacity style={styles.permButton} onPress={requestPermission}>
-          <Text style={styles.permButtonText}>Grant Permission</Text>
+        <TouchableOpacity
+          style={styles.permissionButton}
+          onPress={requestPermission}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.permissionButtonText}>Grant Permission</Text>
         </TouchableOpacity>
       </View>
     );
@@ -412,90 +458,151 @@ const QRScannerScreen = () => {
 
   if (result) {
     const isWarning = !result.success && result.severity === 'warning';
-    const accentColor = result.success
-      ? COLORS.success
+
+    const tone = result.success
+      ? {
+          accent: T.green,
+          soft: T.greenSoft,
+          border: '#BFE3CF',
+          glyph: '✓',
+          label: 'VERIFIED',
+        }
       : isWarning
-      ? COLORS.warning
-      : COLORS.error;
+      ? {
+          accent: T.amber,
+          soft: T.amberSoft,
+          border: '#F0D08A',
+          glyph: '!',
+          label: 'ATTENTION',
+        }
+      : {
+          accent: T.red,
+          soft: T.redSoft,
+          border: '#F5C2C0',
+          glyph: '✕',
+          label: 'FAILED',
+        };
 
     return (
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.resultContent}
-      >
-        <View
-          style={[
-            styles.resultCard,
-            result.success
-              ? styles.resultSuccess
-              : isWarning
-              ? styles.resultWarning
-              : styles.resultError,
-          ]}
+      <View style={styles.resultRoot}>
+        <ScrollView
+          contentContainerStyle={styles.resultContent}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.resultIcon, { color: accentColor }]}>
-            {result.success ? '✓' : isWarning ? '!' : '✕'}
-          </Text>
+          <View style={styles.resultToneStrip}>
+            <View style={[styles.resultToneDot, { backgroundColor: tone.accent }]} />
+            <Text style={[styles.resultToneLabel, { color: tone.accent }]}>
+              {tone.label}
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.resultBadge,
+              { backgroundColor: tone.soft, borderColor: tone.border },
+            ]}
+          >
+            <Text style={[styles.resultBadgeGlyph, { color: tone.accent }]}>
+              {tone.glyph}
+            </Text>
+          </View>
+
           <Text style={styles.resultTitle}>
             {result.success
               ? result.alreadyVerified
-                ? 'Already Verified'
-                : 'Room Verified'
-              : result.title || 'Verification Failed'}
+                ? 'Already verified'
+                : 'Room verified'
+              : result.title || 'Verification failed'}
           </Text>
 
           {result.success ? (
             <>
               <Text style={styles.resultRoom}>{result.room}</Text>
-              <Text style={styles.resultSubject}>
-                {result.subject} · {result.section}
-              </Text>
-              <Text style={styles.resultCourse}>{result.courseTitle}</Text>
-              <Text style={styles.resultTime}>{result.time}</Text>
 
-              <View style={styles.badgeRow}>
-                <View style={styles.badgeF2F}>
-                  <Text style={styles.badgeText}>
-                    ● {result.classType === 'in-person' ? 'FACE-TO-FACE' : 'ONLINE'}
-                  </Text>
-                </View>
+              <View style={styles.resultDivider} />
+
+              <Text style={styles.resultSubject}>
+                {result.subject}
+                {result.section ? ` · ${result.section}` : ''}
+              </Text>
+              {!!result.courseTitle && (
+                <Text style={styles.resultCourse} numberOfLines={2}>
+                  {result.courseTitle}
+                </Text>
+              )}
+
+              <View style={styles.resultMetaPill}>
+                <Text style={styles.resultMetaText}>{result.time}</Text>
+              </View>
+
+              <View
+                style={[
+                  styles.modalityPill,
+                  result.classType === 'in-person'
+                    ? { backgroundColor: T.amberSoft }
+                    : { backgroundColor: T.blueSoft },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modalityText,
+                    result.classType === 'in-person'
+                      ? { color: T.amber }
+                      : { color: T.blue },
+                  ]}
+                >
+                  {result.classType === 'in-person' ? 'FACE-TO-FACE' : 'ONLINE'}
+                </Text>
               </View>
 
               <Text style={styles.resultNote}>
-                Room status has been updated. Students can now see this class is officially in session.
+                Room status has been updated. Students can now see this
+                class is officially in session.
               </Text>
             </>
           ) : (
             <>
-              <Text style={[styles.resultErrorText, { color: accentColor }]}>
+              <Text style={[styles.resultFailureMessage, { color: tone.accent }]}>
                 {result.message}
               </Text>
+
               {!!result.hint && (
-                <Text style={styles.resultHint}>{result.hint}</Text>
+                <View style={styles.resultHintBox}>
+                  <Text style={styles.resultHintLabel}>WHAT TO DO</Text>
+                  <Text style={styles.resultHintText}>{result.hint}</Text>
+                </View>
               )}
+
               {!!result.debug && (
                 <View style={styles.debugBox}>
-                  <Text style={styles.debugTitle}>DEV INFO</Text>
+                  <Text style={styles.debugLabel}>DEV INFO</Text>
                   <Text style={styles.debugText}>{result.debug}</Text>
                 </View>
               )}
             </>
           )}
+        </ScrollView>
+
+        <View style={styles.resultFooter}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={resetScanner}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.primaryButtonText}>
+              {result.success ? 'Scan Another' : 'Try Again'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.secondaryButtonText}>Back to Dashboard</Text>
+          </TouchableOpacity>
         </View>
-
-        <TouchableOpacity style={styles.primaryButton} onPress={resetScanner}>
-          <Text style={styles.primaryButtonText}>
-            {result.success ? 'Scan Another' : 'Try Again'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.secondaryButtonText}>Back to Dashboard</Text>
-        </TouchableOpacity>
-      </ScrollView>
+      </View>
     );
   }
 
@@ -517,41 +624,95 @@ const QRScannerScreen = () => {
         )}
 
         <View style={styles.overlay} pointerEvents="none">
-          <View style={styles.overlayTop}>
-            <Text style={styles.overlayTitle}>Scan Classroom QR</Text>
-            <Text style={styles.overlaySubtitle}>
-              Point your camera at the QR code posted on the classroom door.
-            </Text>
-          </View>
+          {/* -------- Dimming mask: 4 quadrants around a centered square -------- */}
 
-          <View style={styles.scanFrame}>
+          {/* Top band: full width, from top to just above the frame */}
+          <View
+            style={[
+              styles.dim,
+              { top: 0, left: 0, right: 0, height: frameTop },
+            ]}
+          />
+
+          {/* Bottom band: full width, from just below the frame to bottom */}
+          <View
+            style={[
+              styles.dim,
+              { top: frameBottom, left: 0, right: 0, bottom: 0 },
+            ]}
+          />
+
+          {/* Left band: only in the vertical range of the frame */}
+          <View
+            style={[
+              styles.dim,
+              { top: frameTop, left: 0, width: sideW, height: FRAME_SIZE },
+            ]}
+          />
+
+          {/* Right band: only in the vertical range of the frame */}
+          <View
+            style={[
+              styles.dim,
+              { top: frameTop, right: 0, width: sideW, height: FRAME_SIZE },
+            ]}
+          />
+
+          {/* -------- Centered scan frame (guaranteed square, true center) -------- */}
+          <View
+            style={[
+              styles.scanFrame,
+              {
+                top: frameTop,
+                left: frameLeft,
+                width: FRAME_SIZE,
+                height: FRAME_SIZE,
+              },
+            ]}
+          >
             <View style={[styles.corner, styles.cornerTL]} />
             <View style={[styles.corner, styles.cornerTR]} />
             <View style={[styles.corner, styles.cornerBL]} />
             <View style={[styles.corner, styles.cornerBR]} />
           </View>
 
+          {/* -------- Top instructions -------- */}
+          <View style={styles.overlayTop}>
+            <Text style={styles.overlayEyebrow}>ROOM VERIFICATION</Text>
+            <Text style={styles.overlayTitle}>Scan classroom QR</Text>
+            <Text style={styles.overlaySubtitle}>
+              Point your camera at the QR code posted on the classroom door.
+            </Text>
+          </View>
+
+          {/* -------- Bottom hint / processing -------- */}
           <View style={styles.overlayBottom}>
             {processing ? (
-              <>
-                <ActivityIndicator color={COLORS.white} />
-                <Text style={styles.processingText}>Verifying…</Text>
-              </>
+              <View style={styles.processingPill}>
+                <ActivityIndicator color="#FFFFFF" size="small" />
+                <Text style={styles.processingText}>Verifying room…</Text>
+              </View>
             ) : (
-              <Text style={styles.hintText}>
-                {mountCamera ? 'Align the QR code within the frame' : 'Starting camera…'}
-              </Text>
+              <View style={styles.hintPill}>
+                <Text style={styles.hintText}>
+                  {mountCamera
+                    ? 'Align the QR code within the frame'
+                    : 'Starting camera…'}
+                </Text>
+              </View>
             )}
           </View>
         </View>
-      </View>
 
-      <TouchableOpacity
-        style={styles.cancelButton}
-        onPress={() => navigation.goBack()}
-      >
-        <Text style={styles.cancelButtonText}>Cancel</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.cancelButtonTop}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.75}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.cancelButtonTopText}>✕</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -565,240 +726,445 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+
+  // ============================================================
+  // PERMISSION
+  // ============================================================
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
-    padding: 30,
+    backgroundColor: T.canvas,
   },
-  permTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: COLORS.black,
+  permissionRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 34,
+    backgroundColor: T.canvas,
+  },
+  permissionIconWrap: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 26,
+  },
+  permissionIconRing: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: T.crimson,
+    opacity: 0.35,
+  },
+  permissionIconDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: T.crimson,
+  },
+  permissionEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.crimson,
     marginBottom: 8,
+  },
+  permissionTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+    marginBottom: 10,
     textAlign: 'center',
   },
-  permText: {
-    fontSize: 14,
-    color: COLORS.gray,
+  permissionText: {
+    fontSize: 13,
+    color: T.inkMuted,
     textAlign: 'center',
-    marginBottom: 24,
+    lineHeight: 19,
+    marginBottom: 28,
+    maxWidth: 280,
   },
-  permButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
+  permissionButton: {
+    backgroundColor: T.crimson,
+    paddingHorizontal: 26,
+    paddingVertical: 15,
     borderRadius: 12,
   },
-  permButtonText: {
-    color: COLORS.white,
-    fontSize: 15,
-    fontWeight: '700',
+  permissionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 
+  // ============================================================
+  // SCANNER
+  // ============================================================
   cameraContainer: {
     flex: 1,
+    backgroundColor: '#000',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
-    paddingTop: 80,
-    paddingBottom: 60,
   },
+
+  // Dimming quadrants — absolute so we can precisely shape the cutout
+  dim: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+
+  // The scan frame itself — absolute, sized and positioned via inline style
+  scanFrame: {
+    position: 'absolute',
+  },
+  corner: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderColor: '#FFD700',
+  },
+  cornerTL: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 3,
+    borderLeftWidth: 3,
+    borderTopLeftRadius: 6,
+  },
+  cornerTR: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 3,
+    borderRightWidth: 3,
+    borderTopRightRadius: 6,
+  },
+  cornerBL: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 3,
+    borderLeftWidth: 3,
+    borderBottomLeftRadius: 6,
+  },
+  cornerBR: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 3,
+    borderRightWidth: 3,
+    borderBottomRightRadius: 6,
+  },
+
   overlayTop: {
+    position: 'absolute',
+    top: 90,
+    left: 0,
+    right: 0,
     alignItems: 'center',
     paddingHorizontal: 30,
   },
+  overlayEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#FFD700',
+    opacity: 0.9,
+    marginBottom: 10,
+  },
   overlayTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: COLORS.white,
-    marginBottom: 6,
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+    marginBottom: 8,
   },
   overlaySubtitle: {
     fontSize: 13,
     color: '#FFFFFF',
-    opacity: 0.85,
+    opacity: 0.8,
     textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 280,
   },
-  scanFrame: {
-    width: 260,
-    height: 260,
-    alignSelf: 'center',
-    position: 'relative',
-  },
-  corner: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderColor: '#FFD700',
-  },
-  cornerTL: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4 },
-  cornerTR: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4 },
-  cornerBL: { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4 },
-  cornerBR: { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4 },
   overlayBottom: {
+    position: 'absolute',
+    bottom: 90,
+    left: 0,
+    right: 0,
     alignItems: 'center',
+    paddingHorizontal: 30,
   },
-  hintText: {
-    fontSize: 13,
-    color: '#FFFFFF',
-    opacity: 0.85,
-    fontStyle: 'italic',
+  processingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    gap: 10,
   },
   processingText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 8,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
-  cancelButton: {
-    paddingVertical: 18,
-    alignItems: 'center',
-    backgroundColor: '#000',
+  hintPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
-  cancelButtonText: {
+  hintText: {
+    fontSize: 12,
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    opacity: 0.92,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 
+  cancelButtonTop: {
+    position: 'absolute',
+    top: 52,
+    left: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonTopText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+
+  // ============================================================
+  // RESULT
+  // ============================================================
+  resultRoot: {
+    flex: 1,
+    backgroundColor: T.canvas,
+  },
   resultContent: {
     padding: 24,
-  },
-  resultCard: {
-    borderRadius: 20,
-    padding: 28,
+    paddingTop: 70,
     alignItems: 'center',
-    marginBottom: 20,
   },
-  resultSuccess: {
-    backgroundColor: '#EAF6EC',
-    borderWidth: 2,
-    borderColor: COLORS.success,
+
+  resultToneStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    marginBottom: 26,
+    gap: 8,
   },
-  resultError: {
-    backgroundColor: '#FDECEC',
-    borderWidth: 2,
-    borderColor: COLORS.error,
+  resultToneDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
-  resultIcon: {
-    fontSize: 56,
+  resultToneLabel: {
+    fontSize: 10,
     fontWeight: '900',
-    marginBottom: 12,
+    letterSpacing: 1.8,
   },
+
+  resultBadge: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 22,
+  },
+  resultBadgeGlyph: {
+    fontSize: 40,
+    fontWeight: '900',
+    lineHeight: 42,
+  },
+
   resultTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: COLORS.black,
-    marginBottom: 16,
-  },
-  resultRoom: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '900',
-    color: COLORS.primary,
-    marginBottom: 4,
+    color: T.ink,
+    letterSpacing: -0.4,
+    marginBottom: 22,
+    textAlign: 'center',
   },
+
+  resultRoom: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: T.crimson,
+    letterSpacing: -0.8,
+    marginBottom: 6,
+  },
+
+  resultDivider: {
+    width: 44,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: T.hair,
+    marginVertical: 18,
+  },
+
   resultSubject: {
     fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.black,
-    marginTop: 8,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: 0.1,
+    textAlign: 'center',
   },
   resultCourse: {
     fontSize: 13,
-    color: COLORS.gray,
-    marginTop: 2,
+    color: T.inkMuted,
+    marginTop: 4,
+    textAlign: 'center',
+    fontWeight: '500',
+    lineHeight: 18,
   },
-  resultTime: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.black,
-    marginTop: 12,
+  resultMetaPill: {
+    marginTop: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
   },
-  badgeRow: {
-    marginTop: 16,
+  resultMetaText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: T.inkSoft,
+    letterSpacing: 0.3,
+    fontVariant: ['tabular-nums'],
   },
-  badgeF2F: {
-    backgroundColor: '#FEF3C7',
+
+  modalityPill: {
+    marginTop: 14,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
   },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.black,
+  modalityText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
+
   resultNote: {
     fontSize: 12,
-    color: COLORS.gray,
+    color: T.inkMuted,
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: 22,
     fontStyle: 'italic',
+    lineHeight: 17,
+    paddingHorizontal: 12,
   },
-  resultWarning: {
-    backgroundColor: '#FFF6E0',
-    borderWidth: 2,
-    borderColor: '#E0A800',
-  },
-  resultErrorText: {
+
+  resultFailureMessage: {
     fontSize: 15,
     fontWeight: '700',
-    color: COLORS.error,
     textAlign: 'center',
-    lineHeight: 21,
+    lineHeight: 22,
+    paddingHorizontal: 8,
   },
-  resultHint: {
-    fontSize: 13,
-    color: COLORS.black,
-    textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 19,
-  },
-  debugBox: {
+  resultHintBox: {
     alignSelf: 'stretch',
     marginTop: 20,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.06)',
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    borderLeftWidth: 3,
+    borderLeftColor: T.amber,
   },
-  debugTitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1,
-    color: COLORS.gray,
-    marginBottom: 4,
+  resultHintLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    color: T.inkFaint,
+    marginBottom: 6,
+  },
+  resultHintText: {
+    fontSize: 12,
+    color: T.inkSoft,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+
+  debugBox: {
+    alignSelf: 'stretch',
+    marginTop: 18,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: T.slateSoft,
+    borderWidth: 1,
+    borderColor: T.hair,
+  },
+  debugLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    color: T.inkFaint,
+    marginBottom: 6,
   },
   debugText: {
     fontSize: 11,
-    color: COLORS.black,
+    color: T.inkSoft,
     lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+  },
+
+  resultFooter: {
+    padding: 24,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: T.hair,
+    backgroundColor: T.canvas,
   },
   primaryButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: T.crimson,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 10,
   },
   primaryButtonText: {
-    color: COLORS.white,
-    fontSize: 15,
-    fontWeight: '800',
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
   secondaryButton: {
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: COLORS.lightGray,
+    borderColor: T.hair,
+    backgroundColor: T.surface,
   },
   secondaryButtonText: {
-    color: COLORS.black,
-    fontSize: 14,
-    fontWeight: '700',
+    color: T.ink,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
 });
 

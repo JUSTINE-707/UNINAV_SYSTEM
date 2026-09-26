@@ -930,6 +930,7 @@ const StudentScheduleScreen = () => {
                     </Text>
                   </View>
 
+                  {/* Cancellation reason — single unified notice */}
                   {isGhost && (
                     <View style={styles.reasonChip}>
                       <Text style={styles.reasonChipIcon}>📋</Text>
@@ -951,7 +952,8 @@ const StudentScheduleScreen = () => {
                     </View>
                   )}
 
-                  {live && (
+                  {/* Live status — hidden for cancelled classes (reason already shown above) */}
+                  {live && !isGhost && (
                     <View
                       style={[
                         styles.statusBlock,
