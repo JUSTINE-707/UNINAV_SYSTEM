@@ -26,30 +26,38 @@ const LoginScreen = ({ navigation }) => {
   const handleLogin = async () => {
     setErrorMsg('');
 
-    if (!inputIdentifier || !inputPassword) {
+    const identifier = inputIdentifier.trim();
+
+    if (!identifier || !inputPassword) {
       setErrorMsg('Please enter your email/SR code and password.');
       return;
     }
 
     setLoading(true);
 
-    let loginEmail = inputIdentifier;
+    let loginEmail = identifier;
 
     // If it doesn't look like an email, treat it as an SR code and look up the real email
-    if (!inputIdentifier.includes('@')) {
-      const { data: student, error: lookupError } = await supabase
-        .from('students')
-        .select('id, users(email)')
-        .eq('sr_code', inputIdentifier)
-        .single();
+    if (!identifier.includes('@')) {
+      // Use a SECURITY DEFINER RPC so the lookup works before authentication
+      // (bypasses RLS on students/users without exposing the tables)
+      const { data: foundEmail, error: rpcError } = await supabase
+        .rpc('lookup_email_by_sr_code', { sr_input: identifier });
 
-      if (lookupError || !student) {
+      if (rpcError) {
+        console.error('[login] SR lookup RPC error:', rpcError);
+        setLoading(false);
+        setErrorMsg(`Lookup error: ${rpcError.message || 'Could not reach server.'}`);
+        return;
+      }
+
+      if (!foundEmail) {
         setLoading(false);
         setErrorMsg('No account found with that SR code.');
         return;
       }
 
-      loginEmail = student.users.email;
+      loginEmail = foundEmail;
     }
 
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
@@ -82,17 +90,18 @@ const LoginScreen = ({ navigation }) => {
       case 'student':
         navigation.navigate('StudentDashboard')
         break
-      case 'professor':
+      case 'faculty':
+      case 'professor':  // Fallback: support both spellings
         navigation.navigate('ProfessorDashboard')
         break
       case 'chairperson':
-        navigation.navigate('ChairpersonDashboard') // web/desktop in your case, but keep for completeness
+        navigation.navigate('ChairpersonDashboard')
         break
       case 'admin':
         navigation.navigate('AdminDashboard')
         break
       default:
-        setErrorMsg('Unknown account role.')
+        setErrorMsg(`Unknown account role: ${profile.role}`)
     }
   }
 
@@ -137,10 +146,11 @@ const LoginScreen = ({ navigation }) => {
               style={styles.input}
               placeholder="Email or SR Code"
               placeholderTextColor={COLORS.gray}
-              keyboardType="default"         
+              keyboardType="default"
               autoCapitalize="none"
-              value={inputIdentifier}         
-              onChangeText={setInputIdentifier} 
+              autoCorrect={false}
+              value={inputIdentifier}
+              onChangeText={setInputIdentifier}
             />
           </View>
 

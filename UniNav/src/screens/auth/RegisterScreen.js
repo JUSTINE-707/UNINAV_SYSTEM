@@ -1,521 +1,558 @@
+import { useState } from 'react'
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   ActivityIndicator,
-  Alert 
 } from 'react-native'
-import { useState } from 'react'
 import { supabase } from '../../services/supabase'
-import { StatusBar } from 'expo-status-bar'
-import { COLORS, FONTS, SIZES } from '../../constants/theme'
-import { Ionicons } from '@expo/vector-icons';
+
+const COLORS = {
+  primary: '#8B0000',
+  white: '#FFFFFF',
+  black: '#1C1C1E',
+  gray: '#9A9A9E',
+  lightGray: '#E8E5DF',
+  background: '#F7F5F2',
+  error: '#B00020',
+  success: '#2E8B22',
+}
 
 const RegisterScreen = ({ navigation }) => {
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState('student'); // 'student' | 'faculty'
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [notice, setNotice] = useState(null);
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [srCode, setSrCode] = useState('')
+  const [role, setRole] = useState('student')
 
-  // Student-only fields
-  const [srCode, setSrCode] = useState('');
-  const [course, setCourse] = useState('');
-  const [section, setSection] = useState('');
-
-  // Faculty-only fields
-  const [employeeId, setEmployeeId] = useState('');
-  const [department, setDepartment] = useState('');
-
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [notice, setNotice] = useState(null)
 
   const handleRegister = async () => {
-    setErrorMsg('');
+    setErrorMsg('')
+    setNotice(null)
 
-    if (!fullName || !email || !password || !confirmPassword) {
-      setErrorMsg('Please fill in all required fields.');
-      return;
+    // ============================================================
+    // VALIDATION
+    // ============================================================
+
+    if (!fullName.trim() || !email.trim() || !password) {
+      setErrorMsg('Please fill in all required fields.')
+      return
     }
+
+    if (!email.includes('@')) {
+      setErrorMsg('Please enter a valid email address.')
+      return
+    }
+
+    if (role === 'student' && !srCode.trim()) {
+      setErrorMsg('Please enter your SR Code.')
+      return
+    }
+
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters.')
+      return
+    }
+
     if (password !== confirmPassword) {
-      setErrorMsg('Passwords do not match.');
-      return;
-    }
-    if (role === 'student' && (!srCode || !course || !section)) {
-      setErrorMsg('Please fill in all student details.');
-      return;
-    }
-    if (role === 'faculty' && (!employeeId || !department)) {
-      setErrorMsg('Please fill in all faculty details.');
-      return;
+      setErrorMsg('Passwords do not match.')
+      return
     }
 
-    setLoading(true);
+    setLoading(true)
 
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    try {
+      const cleanEmail = email.trim().toLowerCase()
+      let rosterEntry = null
 
-    if (authError) {
-      setLoading(false);
-      if (
-        authError.message.toLowerCase().includes('already registered') ||
-        authError.message.toLowerCase().includes('already exists') ||
-        authError.code === 'user_already_exists'
-      ) {
-        setNotice({ type: 'warning', message: 'This email already has an account. Try logging in instead.' });
+      // ============================================================
+      // STEP 1: Verify against the appropriate roster
+      // ============================================================
+
+      if (role === 'student') {
+        const { data, error: rpcError } = await supabase.rpc(
+          'lookup_student_roster',
+          {
+            email_input: cleanEmail,
+            sr_code_input: srCode.trim(),
+          }
+        )
+
+        if (rpcError) throw rpcError
+
+        if (!data) {
+          throw new Error(
+            "Your email and SR Code don't match any record in the student roster. Please contact the admin to be added first."
+          )
+        }
+
+        rosterEntry = data
       } else {
-        setNotice({ type: 'error', message: authError.message });
+        const { data, error: rpcError } = await supabase.rpc(
+          'lookup_faculty_roster',
+          {
+            email_input: cleanEmail,
+          }
+        )
+
+        if (rpcError) throw rpcError
+
+        if (!data) {
+          throw new Error(
+            "Your email isn't in the faculty roster. Please contact the admin to be added first."
+          )
+        }
+
+        rosterEntry = data
       }
-      return;
-    }
 
-    const userId = authData.user.id;
+      // ============================================================
+      // STEP 1.5: Use the roster's canonical name for the users row
+      // ============================================================
 
-    const { error: userError } = await supabase.from('users').insert({
-      id: userId,
-      full_name: fullName,
-      email,
-      role: role === 'student' ? 'student' : 'professor',
-    });
+      const rosterName = (rosterEntry.full_name || '').trim()
+      const canonicalName = rosterName || fullName.trim().toUpperCase()
 
-    if (userError) {
-      setLoading(false);
-      setNotice({ type: 'error', message: 'Account created but profile failed: ' + userError.message });
-      return;
-    }
+      if (rosterName && rosterName !== fullName) {
+        setFullName(rosterName)
+      }
 
-    const roleInsert =
-      role === 'student'
-        ? supabase.from('students').insert({
+      // ============================================================
+      // STEP 2: Create the auth account
+      // ============================================================
+
+      const { data: authData, error: authError } =
+        await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+        })
+
+      if (authError) throw authError
+
+      if (!authData.user) {
+        throw new Error('Registration failed. No user was created.')
+      }
+
+      const userId = authData.user.id
+
+      // ============================================================
+      // STEP 3: Create the public.users row (canonical name)
+      // ============================================================
+
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: userId,
+          full_name: canonicalName,
+          email: cleanEmail,
+          role,
+        })
+
+      if (userError) throw userError
+
+      // ============================================================
+      // STEP 4: Create the role-specific row + link roster
+      // ============================================================
+
+      if (role === 'student') {
+        const { error: studentError } = await supabase
+          .from('students')
+          .insert({
             id: userId,
-            sr_code: srCode,
-            course,
-            section,
+            sr_code: rosterEntry.sr_code,
+            course: rosterEntry.course || null,
           })
-        : supabase.from('faculty').insert({
+
+        if (studentError) throw studentError
+
+        // Link the students_roster row via SECURITY DEFINER RPC.
+        // Direct UPDATE would be blocked by RLS — students have no
+        // UPDATE policy on students_roster. The RPC runs elevated
+        // and matches the row by sr_code (already verified in Step 1).
+        const { error: linkError } = await supabase.rpc(
+          'claim_student_roster',
+          {
+            p_user_id: userId,
+            p_sr_code: rosterEntry.sr_code,
+          }
+        )
+
+        if (linkError) throw linkError
+      }
+
+      if (role === 'faculty') {
+        const { error: facultyError } = await supabase
+          .from('faculty')
+          .insert({
             id: userId,
-            employee_id: employeeId,
-            department,
-          });
+            program: rosterEntry.program || null,
+            college: rosterEntry.college || null,
+          })
 
-    const { error: roleError } = await roleInsert;
+        if (facultyError) throw facultyError
 
-    setLoading(false);
+        // Link the faculty_roster row via SECURITY DEFINER RPC.
+        // Matches by email (unique in faculty_roster).
+        const { error: linkError } = await supabase.rpc(
+          'claim_faculty_roster',
+          {
+            p_user_id: userId,
+            p_email: cleanEmail,
+          }
+        )
 
-    if (roleError) {
-      setNotice({ type: 'error', message: 'Profile incomplete: ' + roleError.message });
-      return;
+        if (linkError) throw linkError
+      }
+
+      // ============================================================
+      // DONE
+      // ============================================================
+
+      setNotice({
+        type: 'success',
+        message: 'Account created successfully. Redirecting to login…',
+      })
+
+      setEmail('')
+      setPassword('')
+      setConfirmPassword('')
+      setSrCode('')
+
+      setTimeout(() => {
+        navigation.navigate('Login')
+      }, 1500)
+    } catch (error) {
+      console.error('Registration error:', error)
+      setErrorMsg(
+        error?.message || 'Something went wrong during registration.'
+      )
+    } finally {
+      setLoading(false)
     }
-
-    // Success!
-    setNotice({ type: 'success', message: 'Your account has been created!' });
-    setTimeout(() => navigation.navigate('Login'), 1500);
-
-  };
+  }
 
   return (
-    <KeyboardAvoidingView
+    <ScrollView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 60}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
     >
-      <StatusBar style="light" />
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <View style={styles.formContainer}>
 
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.appName}>UniNav</Text>
-          <Text style={styles.headerSubtitle}>Create your account</Text>
+        <Text style={styles.title}>Create Account</Text>
+
+        <Text style={styles.subtitle}>
+          Register your UniNav account
+        </Text>
+
+        {errorMsg ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{errorMsg}</Text>
+          </View>
+        ) : null}
+
+        {notice ? (
+          <View
+            style={[
+              styles.noticeBox,
+              notice.type === 'success' && styles.noticeSuccess,
+            ]}
+          >
+            <Text style={styles.noticeText}>{notice.message}</Text>
+          </View>
+        ) : null}
+
+        {/* Full Name */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Full Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="SURNAME, FIRST NAME M."
+            placeholderTextColor={COLORS.gray}
+            value={fullName}
+            onChangeText={(t) => setFullName(t.toUpperCase())}
+            autoCapitalize="characters"
+          />
+          <Text style={styles.helperText}>
+            Must match your record in the {role === 'student' ? 'student' : 'faculty'} roster.
+          </Text>
         </View>
 
-        <View style={styles.form}>
+        {/* Email */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. name@batstate-u.edu.ph"
+            placeholderTextColor={COLORS.gray}
+            value={email}
+            onChangeText={(t) => setEmail(t.toLowerCase())}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
 
-          {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your full name"
-              placeholderTextColor={COLORS.gray}
-              value={fullName}
-              onChangeText={setFullName}
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              placeholderTextColor={COLORS.gray}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
-
-           {/* Password */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.passwordRow}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter your password"
-                placeholderTextColor={COLORS.gray}
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={setPassword}
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
+        {/* Role */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Account Type</Text>
+          <View style={styles.roleContainer}>
+            <TouchableOpacity
+              style={[
+                styles.roleButton,
+                role === 'student' && styles.roleButtonActive,
+              ]}
+              onPress={() => {
+                setRole('student')
+                setErrorMsg('')
+              }}
+            >
+              <Text
+                style={[
+                  styles.roleText,
+                  role === 'student' && styles.roleTextActive,
+                ]}
               >
-                <Ionicons
-                  name={showPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color={COLORS.gray}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
+                Student
+              </Text>
+            </TouchableOpacity>
 
-          {/* Confirm Password */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Confirm Password</Text>
-            <View style={styles.passwordRow}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Confirm your password"
-                placeholderTextColor={COLORS.gray}
-                secureTextEntry={!showConfirmPassword}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-              />
-              <TouchableOpacity
-                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                style={styles.eyeIcon}
+            <TouchableOpacity
+              style={[
+                styles.roleButton,
+                role === 'faculty' && styles.roleButtonActive,
+              ]}
+              onPress={() => {
+                setRole('faculty')
+                setErrorMsg('')
+              }}
+            >
+              <Text
+                style={[
+                  styles.roleText,
+                  role === 'faculty' && styles.roleTextActive,
+                ]}
               >
-                <Ionicons
-                  name={showConfirmPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color={COLORS.gray}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Role</Text>
-            <View style={styles.roleContainer}>
-              {[
-                { label: 'Student', value: 'student' },
-                { label: 'Faculty', value: 'faculty' },
-              ].map((r) => (
-                <TouchableOpacity
-                  key={r.value}
-                  style={[
-                    styles.roleButton,
-                    role === r.value && styles.roleButtonActive,
-                  ]}
-                  onPress={() => setRole(r.value)}
-                >
-                  <Text
-                    style={[
-                      styles.roleText,
-                      role === r.value && styles.roleTextActive,
-                    ]}
-                  >
-                    {r.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {role === 'student' && (
-            <>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>SR Code</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 22-75347"
-                  placeholderTextColor={COLORS.gray}
-                  value={srCode}
-                  onChangeText={setSrCode}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Course</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. BSIT"
-                  placeholderTextColor={COLORS.gray}
-                  value={course}
-                  onChangeText={setCourse}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Section</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. IT 1101"
-                  placeholderTextColor={COLORS.gray}
-                  value={section}
-                  onChangeText={setSection}
-                />
-              </View>
-
-              {notice && (
-                <View style={[
-                  styles.noticeBox,
-                  notice.type === 'success' && styles.noticeSuccess,
-                  notice.type === 'warning' && styles.noticeWarning,
-                  notice.type === 'error' && styles.noticeError,
-                ]}>
-                  <Text style={styles.noticeText}>{notice.message}</Text>
-                </View>
-              )}
-            </>
-          )}
-
-          {role === 'faculty' && (
-            <>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Employee ID</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your employee ID"
-                  placeholderTextColor={COLORS.gray}
-                  value={employeeId}
-                  onChangeText={setEmployeeId}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Department</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. CICS"
-                  placeholderTextColor={COLORS.gray}
-                  value={department}
-                  onChangeText={setDepartment}
-                />
-              </View>
-            </>
-          )}
-
-          <TouchableOpacity
-            style={styles.registerButton}
-            onPress={handleRegister}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color={COLORS.white} />
-            ) : (
-              <Text style={styles.registerButtonText}>REGISTER</Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.loginContainer}>
-            <Text style={styles.loginText}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-              <Text style={styles.loginLink}>Login</Text>
+                Faculty
+              </Text>
             </TouchableOpacity>
           </View>
-
         </View>
 
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
-};
+        {/* Student SR Code */}
+        {role === 'student' && (
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>SR Code</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 2023-00123"
+              placeholderTextColor={COLORS.gray}
+              value={srCode}
+              onChangeText={setSrCode}
+              autoCapitalize="characters"
+            />
+            <Text style={styles.helperText}>
+              Must match your record in the student roster.
+            </Text>
+          </View>
+        )}
+
+        {/* Password */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Password</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="At least 6 characters"
+            placeholderTextColor={COLORS.gray}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+        </View>
+
+        {/* Confirm Password */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Confirm Password</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Re-enter your password"
+            placeholderTextColor={COLORS.gray}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry
+          />
+        </View>
+
+        {/* Register Button */}
+        <TouchableOpacity
+          style={[
+            styles.registerButton,
+            loading && styles.registerButtonDisabled,
+          ]}
+          onPress={handleRegister}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color={COLORS.white} />
+          ) : (
+            <Text style={styles.registerButtonText}>Create Account</Text>
+          )}
+        </TouchableOpacity>
+
+        {/* Login */}
+        <View style={styles.loginContainer}>
+          <Text style={styles.loginText}>Already have an account?</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+            <Text style={styles.loginLink}>Login</Text>
+          </TouchableOpacity>
+        </View>
+
+      </View>
+    </ScrollView>
+  )
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.background,
   },
-  scrollContainer: {
+  content: {
     flexGrow: 1,
+    justifyContent: 'center',
+    padding: 24,
   },
-  header: {
-    paddingHorizontal: SIZES.padding,
-    paddingTop: 60,
-    paddingBottom: 30,
+  formContainer: {
+    width: '100%',
+    maxWidth: 500,
+    alignSelf: 'center',
   },
-  backButton: {
-    marginBottom: 16,
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: COLORS.black,
+    marginBottom: 6,
   },
-  backText: {
-    color: COLORS.secondary,
-    fontSize: FONTS.medium,
-    fontWeight: 'bold',
-  },
-  appName: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    letterSpacing: 4,
-  },
-  headerSubtitle: {
-    fontSize: FONTS.medium,
-    color: COLORS.lightGray,
-    marginTop: 4,
-  },
-  form: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    paddingHorizontal: SIZES.padding,
-    paddingTop: 30,
-    paddingBottom: 40,
-    flex: 1,
+  subtitle: {
+    fontSize: 14,
+    color: COLORS.gray,
+    marginBottom: 24,
   },
   inputContainer: {
     marginBottom: 16,
   },
   inputLabel: {
-    fontSize: FONTS.medium,
+    fontSize: 14,
     fontWeight: '600',
     color: COLORS.black,
-    marginBottom: 8,
+    marginBottom: 7,
   },
   input: {
-    backgroundColor: COLORS.background,
-    borderRadius: SIZES.borderRadius,
-    padding: 14,
-    fontSize: FONTS.medium,
-    color: COLORS.black,
+    height: 50,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.lightGray,
-  },
-  // --- New: password field with eye toggle, same look as .input ---
-  passwordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-    borderRadius: SIZES.borderRadius,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
+    borderRadius: 10,
     paddingHorizontal: 14,
-  },
-  passwordInput: {
-    flex: 1,
-    paddingVertical: 14,
-    fontSize: FONTS.medium,
+    fontSize: 15,
     color: COLORS.black,
   },
-  eyeIcon: {
-    padding: 4,
-    marginLeft: 8,
+  helperText: {
+    fontSize: 11,
+    color: COLORS.gray,
+    marginTop: 6,
+    fontStyle: 'italic',
   },
   roleContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   roleButton: {
     flex: 1,
-    minWidth: '45%',
-    backgroundColor: COLORS.background,
-    borderRadius: SIZES.borderRadius,
-    padding: 12,
-    alignItems: 'center',
+    height: 48,
     borderWidth: 1,
     borderColor: COLORS.lightGray,
+    borderRadius: 10,
+    backgroundColor: COLORS.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  // --- New: needed since RegisterScreen now highlights the selected role ---
   roleButtonActive: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
   roleText: {
-    fontSize: FONTS.medium,
+    fontSize: 14,
+    fontWeight: '600',
     color: COLORS.black,
-    fontWeight: '500',
   },
-    roleTextActive: {
+  roleTextActive: {
     color: COLORS.white,
   },
-  // --- New: needed since RegisterScreen now shows validation/error messages ---
-  errorText: {
-    color: '#D32F2F',
-    fontSize: FONTS.medium,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
   registerButton: {
+    height: 52,
     backgroundColor: COLORS.primary,
-    borderRadius: SIZES.borderRadius,
-    padding: 16,
+    borderRadius: 10,
     alignItems: 'center',
-    marginTop: 10,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  registerButtonDisabled: {
+    opacity: 0.7,
   },
   registerButtonText: {
     color: COLORS.white,
-    fontSize: FONTS.medium,
-    fontWeight: 'bold',
-    letterSpacing: 2,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  errorBox: {
+    backgroundColor: '#FDECEC',
+    borderWidth: 1,
+    borderColor: '#F5B5B5',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 13,
+  },
+  noticeBox: {
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  noticeSuccess: {
+    backgroundColor: '#EAF6EC',
+    borderWidth: 1,
+    borderColor: COLORS.success,
+  },
+  noticeText: {
+    color: COLORS.black,
+    fontSize: 13,
   },
   loginContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     marginTop: 20,
+    gap: 5,
   },
   loginText: {
     color: COLORS.gray,
-    fontSize: FONTS.medium,
+    fontSize: 14,
   },
   loginLink: {
     color: COLORS.primary,
-    fontSize: FONTS.medium,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '700',
   },
-  noticeBox: {
-    borderRadius: SIZES.borderRadius,
-    padding: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-  },
-  noticeSuccess: {
-    backgroundColor: '#EAF6EC',
-    borderColor: '#2E8B22',
-  },
-  noticeWarning: {
-    backgroundColor: '#FFF6E0',
-    borderColor: '#B8860B',
-  },
-  noticeError: {
-    backgroundColor: '#FDECEA',
-    borderColor: '#B3261E',
-  },
-  noticeText: {
-    fontSize: FONTS.medium,
-    fontWeight: '500',
-    color: COLORS.black,
-  },
-});
+})
 
 export default RegisterScreen
