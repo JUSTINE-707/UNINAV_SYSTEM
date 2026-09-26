@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,14 @@ import {
   StatusBar,
   Modal,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, CommonActions } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useSemester } from '../../context/SemesterContext';
+import { navigate, navigationRef } from '../../navigation/navigationRef';
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
 
 // ============================================================
@@ -44,35 +47,27 @@ const T = {
   slateSoft: '#F1F5F9',
 };
 
-const COLORS = {
-  primary: T.crimson,
-  white: '#FFFFFF',
-  black: T.ink,
-  gray: T.inkMuted,
-  lightGray: T.hair,
-  background: T.canvas,
-  success: T.green,
-  warning: T.amber,
-  online: T.blue,
-  onlineBg: T.blueSoft,
-  f2fBg: T.amberSoft,
-  excusedBg: T.greenSoft,
-  unexcusedBg: T.amberSoft,
-  neutralBg: T.slateSoft,
-  ghostBg: T.slateSoft,
-};
+// ============================================================
+// CONSTANTS
+// ============================================================
 
-const WEEK = [
-  { code: 'M',  label: 'Mon', full: 'Monday' },
-  { code: 'T',  label: 'Tue', full: 'Tuesday' },
-  { code: 'W',  label: 'Wed', full: 'Wednesday' },
-  { code: 'Th', label: 'Thu', full: 'Thursday' },
-  { code: 'F',  label: 'Fri', full: 'Friday' },
-  { code: 'Sat', label: 'Sat', full: 'Saturday' },
-  { code: 'Sun', label: 'Sun', full: 'Sunday' },
+const DAYS = ['Sun', 'M', 'T', 'W', 'Th', 'F', 'Sat'];
+const DAY_LABELS = {
+  Sun: 'Sunday',
+  M: 'Monday',
+  T: 'Tuesday',
+  W: 'Wednesday',
+  Th: 'Thursday',
+  F: 'Friday',
+  Sat: 'Saturday',
+};
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-const DAY_CODES = ['Sun', 'M', 'T', 'W', 'Th', 'F', 'Sat'];
+const TODAY_PREVIEW_LIMIT = 5;
+const REPORTED_BANNER_DURATION = 6000;
 
 const CAUSE_LABELS = {
   professor: 'You could not attend',
@@ -114,36 +109,30 @@ const formatTime = (time) => {
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
 };
 
-const formatDuration = (start, end) => {
-  const s = timeToMinutes(start);
-  const e = timeToMinutes(end);
-  if (s === null || e === null) return '';
-  const mins = e - s;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
+const formatVerifiedTime = (isoString) => {
+  if (!isoString) return '';
+  try {
+    return new Date(isoString).toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
 };
 
 const isOnlineRoom = (roomName) => {
   if (!roomName) return false;
   const n = roomName.toString().trim().toUpperCase();
-
-  const ONLINE_SUBSTRINGS = [
-    'ONLINE', 'ASYNCHRONOUS', 'GOOGLE CLASSROOM', 'GOOGLE CLASS',
-    'GC', 'MODULAR', 'VIRTUAL', 'DISTANCE',
-  ];
-  if (ONLINE_SUBSTRINGS.some((m) => n.includes(m))) return true;
-
-  const ONLINE_EXACT = [
-    'ZOOM', 'GOOGLE MEET', 'GMEET', 'TEAMS', 'MICROSOFT TEAMS',
-    'WEBEX', 'DISCORD',
-  ];
-  return ONLINE_EXACT.includes(n);
+  return (
+    n.includes('ONLINE') ||
+    n.includes('ASYNCHRONOUS') ||
+    n.includes('GOOGLE CLASSROOM') ||
+    n === 'ZOOM' ||
+    n === 'GOOGLE MEET' ||
+    n === 'GMEET'
+  );
 };
-
-const getTodayCode = () => DAY_CODES[new Date().getDay()];
 
 const toLocalDateString = (date) => {
   const y = date.getFullYear();
@@ -152,151 +141,113 @@ const toLocalDateString = (date) => {
   return `${y}-${m}-${d}`;
 };
 
-const getWeekRange = () => {
-  const now = new Date();
-  const day = now.getDay();
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMonday);
-  monday.setHours(0, 0, 0, 0);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return {
-    start: toLocalDateString(monday),
-    end: toLocalDateString(sunday),
-  };
-};
-
 const normalizeNameKey = (name) => {
   if (!name) return '';
   return name.toString().toUpperCase().replace(/[^A-Z0-9]/g, '');
 };
 
-const nowInMinutes = () => {
-  const now = new Date();
-  return now.getHours() * 60 + now.getMinutes();
+const getGreeting = () => {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
 };
 
-const formatVerifiedTime = (isoString) => {
-  if (!isoString) return '';
-  try {
-    const t = new Date(isoString);
-    return t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return '';
-  }
+const getInitials = (name) => {
+  if (!name) return 'FP';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
 // ============================================================
-// LIVE STATUS
+// CLASS STATUS
 // ============================================================
 
-const getLiveStatus = (cls, nowMin, todayCode) => {
-  if (!cls || cls.day !== todayCode || cls.ghostReport) return null;
+const getProfessorClassStatus = (cls, nowMin) => {
+  if (cls.ghostReport) return 'ghost';
 
   const start = timeToMinutes(cls.start_time);
   const end = timeToMinutes(cls.end_time);
+  if (start === null || end === null) return 'unknown';
+
   const hasSession = !!cls.liveSession;
   const endedEarly = !!cls.liveSession?.ended_at;
-  const online = cls.isOnline;
-
-  if (online) {
-    return {
-      roomState: 'online',
-      icon: '🌐',
-      headline: 'ONLINE CLASS',
-      subline: hasSession
-        ? 'You checked in online'
-        : 'No physical room — join virtually',
-    };
-  }
-
-  if (start === null || end === null) return null;
 
   if (nowMin > end) {
-    if (hasSession && endedEarly) {
-      return {
-        roomState: 'ended_early',
-        icon: '⏹',
-        headline: 'ENDED EARLY',
-        subline: `You ended this class at ${formatVerifiedTime(
-          cls.liveSession.ended_at
-        )}`,
-      };
-    }
-    return {
-      roomState: 'ended',
-      icon: '·',
-      headline: 'CLASS ENDED',
-      subline: hasSession
-        ? `You checked in at ${formatVerifiedTime(cls.liveSession.scanned_at)}`
-        : 'Room was never verified',
-    };
+    if (hasSession && endedEarly) return 'ended_early';
+    return hasSession ? 'completed' : 'missed';
   }
-
-  if (nowMin < start) {
-    return {
-      roomState: 'upcoming',
-      icon: '🕐',
-      headline: 'NOT STARTED YET',
-      subline: `Starts at ${formatTime(cls.start_time)}`,
-    };
+  if (nowMin >= start && nowMin <= end) {
+    if (hasSession && endedEarly) return 'ended_early';
+    return hasSession ? 'ongoing' : 'starts_now';
   }
-
-  if (hasSession) {
-    if (endedEarly) {
-      return {
-        roomState: 'ended_early',
-        icon: '⏹',
-        headline: 'ENDED EARLY',
-        subline: `You ended this class at ${formatVerifiedTime(cls.liveSession.ended_at)}`,
-      };
-    }
-    const t = formatVerifiedTime(cls.liveSession.scanned_at);
-    return {
-      roomState: 'occupied',
-      icon: '✓',
-      headline: 'CHECKED IN',
-      subline: t ? `You checked in at ${t}` : 'Your check-in is on record',
-    };
-  }
-
-  return {
-    roomState: 'vacant',
-    icon: '⏳',
-    headline: 'NOT CHECKED IN',
-    subline: 'Scan the room QR to confirm you are here',
-  };
+  return 'upcoming';
 };
 
 const stateAccent = (state) => {
   switch (state) {
-    case 'occupied': return T.green;
-    case 'vacant': return T.amber;
-    case 'online': return T.blue;
-    case 'ended': return T.slate;
-    case 'ended_early': return '#C77700';
-    case 'upcoming': return T.crimson;
-    default: return T.slate;
+    case 'ongoing':
+    case 'occupied':
+      return T.green;
+    case 'starts_now':
+    case 'upcoming':
+    case 'vacant':
+      return T.amber;
+    case 'ended_early':
+      return '#C77700';
+    case 'missed':
+      return T.red;
+    case 'online':
+      return T.blue;
+    case 'ghost':
+    case 'completed':
+    case 'ended':
+      return T.slate;
+    default:
+      return T.slate;
   }
 };
 
 const stateSoftBg = (state) => {
   switch (state) {
-    case 'occupied': return T.greenSoft;
-    case 'vacant': return T.amberSoft;
-    case 'online': return T.blueSoft;
-    case 'ended': return T.slateSoft;
-    case 'ended_early': return T.amberSoft;
-    case 'upcoming': return '#FDECEC';
-    default: return T.slateSoft;
+    case 'ongoing':
+    case 'occupied':
+      return T.greenSoft;
+    case 'starts_now':
+    case 'upcoming':
+    case 'vacant':
+      return T.amberSoft;
+    case 'ended_early':
+      return '#FEF3C7';
+    case 'missed':
+      return T.redSoft;
+    case 'online':
+      return T.blueSoft;
+    case 'ghost':
+    case 'completed':
+    case 'ended':
+    default:
+      return T.slateSoft;
   }
 };
 
-// ------------------------------------------------------------
-// Time-aware action gates
-// ------------------------------------------------------------
-const getAvailableActions = (cls, nowMin, todayCode) => {
+const getInlineStatusLabel = (status, cls) => {
+  if (status === 'ghost') {
+    if (cls.ghostReport?.is_excused === true) return 'REPORTED · EXCUSED';
+    if (cls.ghostReport?.is_excused === false) return 'REPORTED · UNEXCUSED';
+    return 'REPORTED';
+  }
+  if (status === 'ongoing') return 'IN PROGRESS';
+  if (status === 'ended_early') return 'ENDED EARLY';
+  if (status === 'starts_now') return 'STARTS NOW';
+  if (status === 'upcoming') return 'UPCOMING';
+  if (status === 'completed') return 'COMPLETED';
+  if (status === 'missed') return 'MISSED';
+  return '';
+};
+
+const getAvailableActions = (cls, nowMin) => {
   if (cls.ghostReport) {
     return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: false };
   }
@@ -306,23 +257,12 @@ const getAvailableActions = (cls, nowMin, todayCode) => {
 
   const start = timeToMinutes(cls.start_time);
   const end = timeToMinutes(cls.end_time);
-
   if (start === null || end === null) {
     return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: true };
   }
 
   const hasSession = !!cls.liveSession;
   const endedEarly = !!cls.liveSession?.ended_at;
-  const isToday = cls.day === todayCode;
-
-  if (!isToday) {
-    return {
-      canScan: !hasSession,
-      canNavigate: true,
-      canEndEarly: hasSession && !endedEarly,
-      canReportGhost: !hasSession,
-    };
-  }
 
   if (nowMin > end) {
     return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: !hasSession };
@@ -340,66 +280,128 @@ const getAvailableActions = (cls, nowMin, todayCode) => {
 };
 
 // ============================================================
-// SCREEN
+// COMPONENT
 // ============================================================
 
-const FacultyScheduleScreen = () => {
-  const navigation = useNavigation();
+const ProfessorDashboard = ({ navigation }) => {
   const { user } = useAuth();
   const { semester } = useSemester();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState(null);
-  const [schedules, setSchedules] = useState([]);
-  const [selectedDay, setSelectedDay] = useState(getTodayCode());
-  const [errorMessage, setErrorMessage] = useState(null);
+  const [fullName, setFullName] = useState('');
+  const [todayClasses, setTodayClasses] = useState([]);
+  const [nextClass, setNextClass] = useState(null);
+  const [now, setNow] = useState(new Date());
+
+  const [showReportedBanner, setShowReportedBanner] = useState(false);
+  const bannerShownRef = useRef(false);
+  const bannerTimerRef = useRef(null);
 
   const [detailClass, setDetailClass] = useState(null);
 
-  const [nowTick, setNowTick] = useState(new Date());
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+
   useEffect(() => {
-    const t = setInterval(() => setNowTick(new Date()), 60000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
   }, []);
 
-  const todayCode = getTodayCode();
-  const nowMin = nowTick.getHours() * 60 + nowTick.getMinutes();
+  useEffect(() => {
+    return () => {
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    };
+  }, []);
+
+  // ============================================================
+  // LOGOUT
+  // ============================================================
+
+  const performLogout = async () => {
+    try {
+      setLoggingOut(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      setLogoutModalOpen(false);
+
+      try {
+        if (
+          navigationRef &&
+          typeof navigationRef.isReady === 'function' &&
+          navigationRef.isReady()
+        ) {
+          navigationRef.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            })
+          );
+        } else {
+          navigate('Login');
+        }
+      } catch (navErr) {
+        console.warn('[Logout] nav reset failed, falling back:', navErr);
+        navigate('Login');
+      }
+    } catch (err) {
+      console.error('[Logout] error:', err);
+      Alert.alert(
+        'Could not log out',
+        err?.message || 'Something went wrong. Please try again.'
+      );
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const openLogoutModal = () => setLogoutModalOpen(true);
+  const closeLogoutModal = () => {
+    if (loggingOut) return;
+    setLogoutModalOpen(false);
+  };
 
   // ============================================================
   // DATA LOAD
   // ============================================================
 
-  const loadSchedule = useCallback(async () => {
+  const loadDashboard = useCallback(async () => {
     try {
-      setErrorMessage(null);
+      setLoading(true);
 
       if (!user?.id) {
-        setErrorMessage('No logged-in faculty account was found.');
+        setLoading(false);
         return;
       }
+
+      const [profileRes, userRes] = await Promise.all([
+        supabase
+          .from('faculty')
+          .select('employee_id, program, college')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', user.id)
+          .maybeSingle(),
+      ]);
+
+      const profProfile = profileRes?.data || null;
+      setProfile(profProfile);
+      setFullName(userRes?.data?.full_name || '');
 
       if (!semester?.id) {
-        setSchedules([]);
+        setTodayClasses([]);
+        setNextClass(null);
         setLoading(false);
-        setRefreshing(false);
         return;
       }
 
-      const { data: profProfile, error: profileError } = await supabase
-        .from('faculty')
-        .select('employee_id, program, college')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (profileError) {
-        setErrorMessage(`Profile error:\n${profileError.message}`);
-        return;
-      }
-
-      setProfile(profProfile);
-
-      const { start: weekStart, end: weekEnd } = getWeekRange();
+      const today = DAYS[new Date().getDay()];
+      const todayDate = toLocalDateString(new Date());
 
       const SCHEDULE_COLUMNS = `
         id, subject_code, course_title, section, program,
@@ -415,7 +417,9 @@ const FacultyScheduleScreen = () => {
           .from('schedules')
           .select(SCHEDULE_COLUMNS)
           .eq('professor_id', user.id)
-          .eq('semester_id', semester.id);
+          .eq('day', today)
+          .eq('semester_id', semester.id)
+          .order('start_time', { ascending: true });
         if (error) scheduleErr = error;
         else scheduleData = data || [];
       }
@@ -425,29 +429,27 @@ const FacultyScheduleScreen = () => {
           .from('schedules')
           .select(SCHEDULE_COLUMNS)
           .eq('employee_id', profProfile.employee_id)
-          .eq('semester_id', semester.id);
+          .eq('day', today)
+          .eq('semester_id', semester.id)
+          .order('start_time', { ascending: true });
         if (error) scheduleErr = error;
         else scheduleData = data || [];
       }
 
       if (!scheduleErr && scheduleData.length === 0 && profProfile?.program) {
-        const { data: userRow } = await supabase
-          .from('users')
-          .select('full_name')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        if (userRow?.full_name) {
+        if (userRes?.data?.full_name) {
           const { data: candidates, error } = await supabase
             .from('schedules')
             .select(SCHEDULE_COLUMNS)
             .eq('program', profProfile.program)
-            .eq('semester_id', semester.id);
+            .eq('day', today)
+            .eq('semester_id', semester.id)
+            .order('start_time', { ascending: true });
 
           if (error) {
             scheduleErr = error;
           } else {
-            const target = normalizeNameKey(userRow.full_name);
+            const target = normalizeNameKey(userRes.data.full_name);
             scheduleData = (candidates || []).filter(
               (s) => normalizeNameKey(s.professor_name) === target
             );
@@ -455,74 +457,92 @@ const FacultyScheduleScreen = () => {
         }
       }
 
+      if (scheduleErr) throw scheduleErr;
+
       const { data: ghostData, error: ghostErr } = await supabase
         .from('ghost_reports')
         .select(
-          'id, schedule_id, reason, cause, is_excused, excused_reason, notes, report_date, created_at'
+          'id, schedule_id, reason, cause, is_excused, excused_reason, notes, report_date, room_released'
         )
         .eq('faculty_id', user.id)
-        .gte('report_date', weekStart)
-        .lte('report_date', weekEnd)
-        .order('created_at', { ascending: false });
+        .eq('report_date', todayDate);
 
-      if (scheduleErr) {
-        setErrorMessage(`Schedule error:\n${scheduleErr.message}`);
-        return;
-      }
-      if (ghostErr) {
-        setErrorMessage(`Ghost report error:\n${ghostErr.message}`);
-        return;
-      }
-
-      const baseList = scheduleData;
-      const scheduleIds = baseList.map((s) => s.id);
+      if (ghostErr) throw ghostErr;
 
       const ghostMap = {};
       (ghostData || []).forEach((r) => {
-        if (!ghostMap[r.schedule_id]) {
-          ghostMap[r.schedule_id] = r;
-        }
+        ghostMap[r.schedule_id] = r;
       });
 
-      if (scheduleIds.length === 0) {
-        setSchedules([]);
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
-
-      const sessionsRes = await supabase
-        .from('room_sessions')
-        .select('id, schedule_id, status, class_type, scanned_at, ended_at')
-        .in('schedule_id', scheduleIds)
-        .gte('scanned_at', startOfDay.toISOString())
-        .lte('scanned_at', endOfDay.toISOString());
-
-      if (sessionsRes.error) {
-        console.warn('[FacultySchedule] room_sessions fetch:', sessionsRes.error.message);
-      }
-
+      const scheduleIds = (scheduleData || []).map((s) => s.id);
       const sessionMap = {};
-      (sessionsRes.data || []).forEach((s) => {
-        sessionMap[s.schedule_id] = s;
-      });
 
-      const merged = baseList.map((c) => ({
+      if (scheduleIds.length > 0) {
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const { data: sessionData, error: sessionErr } = await supabase
+          .from('room_sessions')
+          .select('id, schedule_id, scanned_at, ended_at, class_type, status')
+          .eq('faculty_id', user.id)
+          .in('schedule_id', scheduleIds)
+          .gte('scanned_at', startOfDay.toISOString())
+          .lte('scanned_at', endOfDay.toISOString());
+
+        if (sessionErr) {
+          console.warn('[ProfessorDashboard] room_sessions fetch:', sessionErr.message);
+        } else {
+          (sessionData || []).forEach((s) => {
+            sessionMap[s.schedule_id] = s;
+          });
+        }
+      }
+
+      const classes = (scheduleData || []).map((c) => ({
         ...c,
         isOnline: isOnlineRoom(c.room_name),
         ghostReport: ghostMap[c.id] || null,
         liveSession: sessionMap[c.id] || null,
       }));
 
-      setSchedules(merged);
+      setTodayClasses(classes);
+
+      const currentNow = new Date();
+      const nowMinutes = currentNow.getHours() * 60 + currentNow.getMinutes();
+      const upcoming = classes.find((c) => {
+        if (c.ghostReport) return false;
+        if (c.liveSession?.ended_at) return false;
+        const end = timeToMinutes(c.end_time);
+        return end !== null && nowMinutes < end;
+      });
+
+      if (!upcoming) {
+        const latestGhost = [...classes]
+          .filter((c) => c.ghostReport)
+          .sort(
+            (a, b) =>
+              (timeToMinutes(a.end_time) || 0) - (timeToMinutes(b.end_time) || 0)
+          )
+          .pop();
+        setNextClass(latestGhost || null);
+      } else {
+        setNextClass(upcoming);
+      }
+
+      const reportedCount = classes.filter((c) => c.ghostReport).length;
+      if (reportedCount > 0 && !bannerShownRef.current) {
+        bannerShownRef.current = true;
+        setShowReportedBanner(true);
+        if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+        bannerTimerRef.current = setTimeout(() => {
+          setShowReportedBanner(false);
+        }, REPORTED_BANNER_DURATION);
+      }
     } catch (err) {
-      console.error('[FacultySchedule] Unexpected error:', err);
-      setErrorMessage(`Unexpected error:\n${err.message}`);
+      console.error('Dashboard load error:', err);
+      Alert.alert('Error', 'Failed to load your schedule.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -531,50 +551,14 @@ const FacultyScheduleScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      if (user) {
-        setLoading(true);
-        loadSchedule();
-      }
-    }, [user, loadSchedule])
+      if (user) loadDashboard();
+    }, [user, loadDashboard])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadSchedule();
+    loadDashboard();
   };
-
-  // ============================================================
-  // DERIVED DATA
-  // ============================================================
-
-  const schedulesByDay = useMemo(() => {
-    const map = {};
-    WEEK.forEach(({ code }) => { map[code] = []; });
-    schedules.forEach((s) => {
-      if (map[s.day]) map[s.day].push(s);
-    });
-    Object.keys(map).forEach((code) => {
-      map[code].sort(
-        (a, b) =>
-          (timeToMinutes(a.start_time) || 0) -
-          (timeToMinutes(b.start_time) || 0)
-      );
-    });
-    return map;
-  }, [schedules]);
-
-  const countsByDay = useMemo(() => {
-    const counts = {};
-    WEEK.forEach(({ code }) => {
-      counts[code] = schedulesByDay[code]?.length || 0;
-    });
-    return counts;
-  }, [schedulesByDay]);
-
-  const totalWeekClasses = schedules.length;
-  const totalInPerson = schedules.filter((s) => !s.isOnline).length;
-  const totalOnline = schedules.filter((s) => s.isOnline).length;
-  const totalReported = schedules.filter((s) => s.ghostReport).length;
 
   // ============================================================
   // ACTIONS
@@ -600,7 +584,7 @@ const FacultyScheduleScreen = () => {
   const handleNavigate = (schedule) => {
     if (!schedule || schedule.ghostReport) return;
     if (schedule.isOnline) {
-      Alert.alert('Online Class', 'No navigation needed for online classes.');
+      Alert.alert('Online Class', 'This class is conducted online. No navigation needed.');
       return;
     }
     closeDetail();
@@ -641,78 +625,75 @@ const FacultyScheduleScreen = () => {
     });
   };
 
-  // ============================================================
-  // LOADING / ERROR
-  // ============================================================
+  const handleQuickReportGhost = () => {
+    const target = todayClasses.find((c) => !c.ghostReport) || todayClasses[0];
+    if (!target) {
+      Alert.alert('No classes to report', 'You have no classes scheduled today that can be reported.');
+      return;
+    }
+    if (target.ghostReport) {
+      Alert.alert('Already Reported', 'All your classes today have already been reported.');
+      return;
+    }
+    handleReportGhost(target);
+  };
+
+  const openFullSchedule = () => navigation.navigate('FacultySchedule');
 
   if (loading) {
-    return <FacultyScheduleSkeleton />;
-  }
-
-  if (errorMessage) {
-    return (
-      <View style={styles.center}>
-        <View style={styles.errorIconWrap}>
-          <Text style={styles.errorIcon}>!</Text>
-        </View>
-        <Text style={styles.errorTitle}>Something went wrong</Text>
-        <Text style={styles.errorText}>{errorMessage}</Text>
-        <TouchableOpacity
-          style={styles.errorRetryButton}
-          onPress={() => {
-            setLoading(true);
-            loadSchedule();
-          }}
-        >
-          <Text style={styles.errorRetryButtonText}>Try again</Text>
-        </TouchableOpacity>
-      </View>
-    );
+    return <ProfessorDashboardSkeleton />;
   }
 
   // ============================================================
-  // RENDER
+  // DERIVED
   // ============================================================
 
-  const selectedSchedules = schedulesByDay[selectedDay] || [];
-  const selectedDayFull = WEEK.find((w) => w.code === selectedDay)?.full;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const reportedCount = todayClasses.filter((c) => c.ghostReport).length;
+  const missedCount = todayClasses.filter(
+    (c) => getProfessorClassStatus(c, nowMin) === 'missed'
+  ).length;
+  const doneCount = todayClasses.filter((c) => {
+    const s = getProfessorClassStatus(c, nowMin);
+    return s === 'completed' || s === 'ended_early' || s === 'ghost';
+  }).length;
+  const remainingClasses = todayClasses.filter((c) => {
+    if (c.ghostReport) return false;
+    if (c.liveSession?.ended_at) return false;
+    const end = timeToMinutes(c.end_time);
+    return end !== null && end > nowMin;
+  });
+
+  const nextStatus = nextClass ? getProfessorClassStatus(nextClass, nowMin) : null;
+
+  const previewClasses = (() => {
+    const active = todayClasses.filter((c) => !c.ghostReport);
+    const ghost = todayClasses.filter((c) => c.ghostReport);
+    return [...active, ...ghost].slice(0, TODAY_PREVIEW_LIMIT);
+  })();
+
+  const moreCount = Math.max(0, todayClasses.length - previewClasses.length);
+
+  const heroProgress = (() => {
+    if (!nextClass) return 0;
+    const start = timeToMinutes(nextClass.start_time);
+    const end = timeToMinutes(nextClass.end_time);
+    if (start === null || end === null) return 0;
+    if (nowMin <= start) return 0;
+    if (nowMin >= end) return 1;
+    return (nowMin - start) / (end - start);
+  })();
+
+  const today = new Date();
+  const dayNumber = today.getDate();
+  const monthName = MONTHS[today.getMonth()];
+  const weekdayName = DAY_LABELS[DAYS[today.getDay()]];
+
+  const initials = getInitials(fullName);
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
-
-      {/* ==================== HEADER ==================== */}
-      <View style={styles.header}>
-        <View style={styles.headerDecor} />
-
-        <View style={styles.headerContent}>
-          <View style={styles.headerTopRow}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backButton}
-              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-            >
-              <Text style={styles.backText}>‹</Text>
-            </TouchableOpacity>
-
-            <View style={{ flex: 1, paddingLeft: 12 }}>
-              <Text style={styles.headerEyebrow}>FACULTY</Text>
-              <Text style={styles.headerTitle}>My Schedule</Text>
-            </View>
-
-            <View style={{ width: 34 }} />
-          </View>
-
-          {semester && (
-            <View style={styles.semesterRow}>
-              <View style={styles.semesterDot} />
-              <Text style={styles.semesterText} numberOfLines={1}>
-                {semester.name}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -725,303 +706,563 @@ const FacultyScheduleScreen = () => {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* ==================== SUMMARY STRIP ==================== */}
+        {/* ==================== HERO HEADER ==================== */}
+        <View style={styles.header}>
+          <View style={styles.headerDecor1} />
+          <View style={styles.headerDecor2} />
+
+          <View style={styles.headerContent}>
+            <View style={styles.headerTopRow}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarText}>{initials}</Text>
+              </View>
+
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={styles.headerEyebrow}>FACULTY PORTAL</Text>
+                <Text style={styles.headerName} numberOfLines={1}>
+                  {fullName || 'Faculty'}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={openLogoutModal}
+                style={styles.logoutButton}
+                disabled={loggingOut}
+                activeOpacity={0.8}
+              >
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <View style={styles.logoutIconChip}>
+                      <Feather name="log-out" size={12} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.logoutLabel}>LOG OUT</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.headerGreeting} numberOfLines={1}>
+              {getGreeting()}.
+            </Text>
+
+            <View style={styles.headerDateRow}>
+              <View style={styles.dateBlock}>
+                <Text style={styles.dateNumber}>{dayNumber}</Text>
+                <Text style={styles.dateMonth}>{monthName.slice(0, 3).toUpperCase()}</Text>
+              </View>
+              <View style={styles.dateDivider} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dateWeekday}>{weekdayName}</Text>
+                {semester && (
+                  <Text style={styles.dateSemester} numberOfLines={1}>
+                    {semester.name}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* ==================== STAT STRIP ==================== */}
         <View style={styles.statStrip}>
-          <View style={styles.statBlock}>
-            <Text style={styles.statValue}>{totalWeekClasses}</Text>
-            <Text style={styles.statLabel}>TOTAL</Text>
-          </View>
+          <StatBlock label="TODAY" value={todayClasses.length} tone="ink" />
           <View style={styles.statDivider} />
-          <View style={styles.statBlock}>
-            <Text style={[styles.statValue, { color: T.amber }]}>
-              {totalInPerson}
-            </Text>
-            <Text style={styles.statLabel}>F2F</Text>
-          </View>
+          <StatBlock label="LEFT" value={remainingClasses.length} tone="amber" />
           <View style={styles.statDivider} />
-          <View style={styles.statBlock}>
-            <Text style={[styles.statValue, { color: T.blue }]}>
-              {totalOnline}
-            </Text>
-            <Text style={styles.statLabel}>ONLINE</Text>
-          </View>
-          {totalReported > 0 && (
+          <StatBlock label="DONE" value={doneCount} tone="green" />
+          {reportedCount > 0 ? (
             <>
               <View style={styles.statDivider} />
-              <View style={styles.statBlock}>
-                <Text style={[styles.statValue, { color: T.slate }]}>
-                  {totalReported}
+              <StatBlock label="REPORTED" value={reportedCount} tone="slate" />
+            </>
+          ) : missedCount > 0 ? (
+            <>
+              <View style={styles.statDivider} />
+              <StatBlock label="MISSED" value={missedCount} tone="red" />
+            </>
+          ) : null}
+        </View>
+
+        {/* ==================== BANNERS ==================== */}
+        {showReportedBanner && reportedCount > 0 && (
+          <Banner
+            tone="green"
+            title={`${reportedCount} ${reportedCount === 1 ? 'class' : 'classes'} reported today`}
+            body="Your Program Chair has been notified."
+          />
+        )}
+
+        {missedCount > 0 && (
+          <Banner
+            tone="red"
+            title={`${missedCount} ${missedCount === 1 ? 'class' : 'classes'} missed today`}
+            body="You didn't scan in. File a ghost report or contact your chair."
+          />
+        )}
+
+        {/* ==================== NEXT CLASS HERO ==================== */}
+        {nextClass && nextStatus ? (
+          <View style={styles.hero}>
+            <View style={styles.heroTop}>
+              <Text style={styles.heroEyebrow}>UP NEXT</Text>
+              <View
+                style={[
+                  styles.heroStatusChip,
+                  {
+                    backgroundColor:
+                      nextStatus === 'ghost'
+                        ? T.slateSoft
+                        : nextClass.isOnline
+                        ? T.blueSoft
+                        : stateSoftBg(nextStatus),
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.heroStatusDot,
+                    {
+                      backgroundColor:
+                        nextStatus === 'ghost'
+                          ? T.slate
+                          : nextClass.isOnline
+                          ? T.blue
+                          : stateAccent(nextStatus),
+                    },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.heroStatusText,
+                    {
+                      color:
+                        nextStatus === 'ghost'
+                          ? T.slate
+                          : nextClass.isOnline
+                          ? T.blue
+                          : stateAccent(nextStatus),
+                    },
+                  ]}
+                >
+                  {nextStatus === 'ghost'
+                    ? 'REPORTED'
+                    : nextClass.isOnline
+                    ? 'ONLINE'
+                    : nextStatus === 'ongoing'
+                    ? 'LIVE'
+                    : nextStatus === 'ended_early'
+                    ? 'ENDED'
+                    : nextStatus === 'starts_now'
+                    ? 'NOW'
+                    : 'SOON'}
                 </Text>
-                <Text style={styles.statLabel}>REPORTED</Text>
               </View>
+            </View>
+
+            <Text style={styles.heroSubject} numberOfLines={1}>
+              {nextClass.subject_code}
+            </Text>
+            <Text style={styles.heroTitle} numberOfLines={2}>
+              {nextClass.course_title}
+            </Text>
+
+            {(nextStatus === 'ongoing' || nextStatus === 'starts_now') &&
+              !nextClass.isOnline &&
+              nextStatus !== 'ghost' && (
+                <View style={styles.heroProgressWrap}>
+                  <View style={styles.heroProgressTrack}>
+                    <View
+                      style={[
+                        styles.heroProgressFill,
+                        {
+                          width: `${Math.max(2, Math.min(100, heroProgress * 100))}%`,
+                          backgroundColor: stateAccent(nextStatus),
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.heroProgressLabel}>
+                    {nextStatus === 'ongoing'
+                      ? `${Math.round(heroProgress * 100)}% through`
+                      : 'Starting soon'}
+                  </Text>
+                </View>
+              )}
+
+            <View style={styles.heroMetaGrid}>
+              <View style={styles.heroMetaItem}>
+                <Text style={styles.heroMetaLabel}>TIME</Text>
+                <Text style={styles.heroMetaValue} numberOfLines={1}>
+                  {formatTime(nextClass.start_time)}
+                </Text>
+                <Text style={styles.heroMetaSub}>
+                  to {formatTime(nextClass.end_time)}
+                </Text>
+              </View>
+
+              <View style={styles.heroMetaDivider} />
+
+              <View style={styles.heroMetaItem}>
+                <Text style={styles.heroMetaLabel}>ROOM</Text>
+                <Text style={styles.heroMetaValue} numberOfLines={1}>
+                  {nextClass.isOnline ? 'Online' : nextClass.room_name || '—'}
+                </Text>
+                <Text style={styles.heroMetaSub} numberOfLines={1}>
+                  {nextClass.section || '—'}
+                </Text>
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.heroNote,
+                {
+                  borderLeftColor:
+                    nextStatus === 'ghost'
+                      ? T.slate
+                      : nextClass.isOnline
+                      ? T.blue
+                      : stateAccent(nextStatus),
+                },
+              ]}
+            >
+              <Text style={styles.heroNoteText}>
+                {nextStatus === 'ghost'
+                  ? nextClass.ghostReport.is_excused === true
+                    ? 'Your record is protected.'
+                    : 'Your Chair will review this report.'
+                  : nextClass.isOnline
+                  ? 'Join virtually — no QR scan needed.'
+                  : nextStatus === 'ongoing'
+                  ? nextClass.liveSession?.scanned_at
+                    ? `Checked in at ${formatVerifiedTime(nextClass.liveSession.scanned_at)}.`
+                    : 'Checked in — room verified.'
+                  : nextStatus === 'ended_early'
+                  ? nextClass.liveSession?.ended_at
+                    ? `Ended at ${formatVerifiedTime(nextClass.liveSession.ended_at)}.`
+                    : 'You ended this class early.'
+                  : nextStatus === 'starts_now'
+                  ? 'Scan the room QR to begin this class.'
+                  : `Class starts at ${formatTime(nextClass.start_time)}.`}
+              </Text>
+            </View>
+
+            {(() => {
+              const acts = getAvailableActions(nextClass, nowMin);
+
+              if (nextStatus === 'ghost') {
+                return (
+                  <TouchableOpacity
+                    style={styles.actionPrimary}
+                    onPress={() => setDetailClass(nextClass)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.actionPrimaryText}>View Report Details</Text>
+                  </TouchableOpacity>
+                );
+              }
+
+              if (nextClass.isOnline) {
+                return (
+                  <TouchableOpacity
+                    style={styles.actionPrimary}
+                    onPress={() => handleReportGhost(nextClass)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.actionPrimaryText}>Report Ghost</Text>
+                  </TouchableOpacity>
+                );
+              }
+
+              if (acts.canEndEarly) {
+                return (
+                  <>
+                    <TouchableOpacity
+                      style={styles.actionOutlineAmber}
+                      onPress={() => handleEndClassEarly(nextClass)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.actionOutlineAmberText}>
+                        End Class Early
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.actionRow}>
+                      <TouchableOpacity
+                        style={styles.actionGhost}
+                        onPress={() => handleNavigate(nextClass)}
+                      >
+                        <Text style={styles.actionGhostText}>Navigate</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.actionGhost}
+                        onPress={() => setDetailClass(nextClass)}
+                      >
+                        <Text style={styles.actionGhostText}>Details</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                );
+              }
+
+              if (acts.canScan) {
+                return (
+                  <>
+                    <TouchableOpacity
+                      style={styles.actionPrimary}
+                      onPress={() => handleScanQR(nextClass)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.actionPrimaryText}>
+                        {nextStatus === 'upcoming'
+                          ? 'Scan QR to Verify Room'
+                          : 'Scan QR to Begin Class'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.actionRow}>
+                      <TouchableOpacity
+                        style={styles.actionGhost}
+                        onPress={() => handleNavigate(nextClass)}
+                      >
+                        <Text style={styles.actionGhostText}>Navigate</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.actionGhost}
+                        onPress={() => handleReportGhost(nextClass)}
+                      >
+                        <Text style={styles.actionGhostText}>Report Ghost</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                );
+              }
+
+              return (
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={styles.actionGhost}
+                    onPress={() => handleNavigate(nextClass)}
+                  >
+                    <Text style={styles.actionGhostText}>Navigate</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionGhost}
+                    onPress={() => setDetailClass(nextClass)}
+                  >
+                    <Text style={styles.actionGhostText}>Details</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })()}
+          </View>
+        ) : (
+          <View style={styles.emptyHero}>
+            <View style={styles.emptyHeroIcon}>
+              <Feather name="check" size={24} color={T.green} />
+            </View>
+            <Text style={styles.emptyHeroTitle}>
+              {semester ? 'All classes done' : 'No active semester'}
+            </Text>
+            <Text style={styles.emptyHeroBody}>
+              {semester
+                ? 'You have no upcoming or ongoing classes scheduled today.'
+                : 'Please contact the admin to activate a semester.'}
+            </Text>
+          </View>
+        )}
+
+        {/* ==================== TIMELINE ==================== */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionEyebrow}>TODAY</Text>
+              <Text style={styles.sectionTitle}>Your schedule</Text>
+            </View>
+            {todayClasses.length > 0 && (
+              <TouchableOpacity
+                onPress={openFullSchedule}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.sectionLink}>Full week →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {todayClasses.length === 0 ? (
+            <View style={styles.emptyList}>
+              <Text style={styles.emptyListText}>No classes scheduled for today.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.timeline}>
+                {previewClasses.map((cls, idx) => {
+                  const status = getProfessorClassStatus(cls, nowMin);
+                  const isGhost = status === 'ghost';
+                  const accent = stateAccent(status);
+                  const isLast = idx === previewClasses.length - 1;
+
+                  return (
+                    <TouchableOpacity
+                      key={cls.id}
+                      style={styles.timelineRow}
+                      activeOpacity={0.7}
+                      onPress={() => setDetailClass(cls)}
+                    >
+                      <View style={styles.timelineRail}>
+                        <Text style={styles.timelineTime}>
+                          {formatTime(cls.start_time).replace(' ', '\n')}
+                        </Text>
+                        <View
+                          style={[
+                            styles.timelineDot,
+                            {
+                              backgroundColor: T.surface,
+                              borderColor: accent,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.timelineDotInner,
+                              { backgroundColor: accent },
+                            ]}
+                          />
+                        </View>
+                        {!isLast && (
+                          <View
+                            style={[
+                              styles.timelineLine,
+                              { backgroundColor: accent + '30' },
+                            ]}
+                          />
+                        )}
+                      </View>
+
+                      <View
+                        style={[
+                          styles.timelineCard,
+                          (status === 'ongoing' || status === 'starts_now') &&
+                            styles.timelineCardLive,
+                          isGhost && styles.timelineCardGhost,
+                        ]}
+                      >
+                        <View style={styles.timelineCardTop}>
+                          <Text style={styles.timelineSubject} numberOfLines={1}>
+                            {cls.subject_code}
+                          </Text>
+                          <View
+                            style={[
+                              styles.timelineStatusChip,
+                              { backgroundColor: stateSoftBg(status) },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.timelineStatusChipText,
+                                { color: accent },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {getInlineStatusLabel(status, cls)}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Text
+                          style={[
+                            styles.timelineTitle,
+                            isGhost && styles.timelineTitleGhost,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {cls.course_title}
+                        </Text>
+
+                        <View style={styles.timelineMetaRow}>
+                          <Text style={styles.timelineMetaIcon}>·</Text>
+                          <Text style={styles.timelineMeta} numberOfLines={1}>
+                            {formatTime(cls.start_time)} – {formatTime(cls.end_time)}
+                          </Text>
+                        </View>
+
+                        <View style={styles.timelineMetaRow}>
+                          <Text style={styles.timelineMetaIcon}>·</Text>
+                          <Text style={styles.timelineMeta} numberOfLines={1}>
+                            {cls.section ? `${cls.section} · ` : ''}
+                            {cls.room_name || '—'}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {moreCount > 0 && (
+                <TouchableOpacity
+                  style={styles.moreRow}
+                  onPress={openFullSchedule}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.moreText}>
+                    +{moreCount} more {moreCount === 1 ? 'class' : 'classes'}
+                  </Text>
+                  <Text style={styles.moreArrow}>→</Text>
+                </TouchableOpacity>
+              )}
             </>
           )}
         </View>
 
-        {/* ==================== DAY TABS ==================== */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.dayTabsContent}
-          style={styles.dayTabsScroll}
-        >
-          {WEEK.map(({ code, label }) => {
-            const isSelected = code === selectedDay;
-            const isToday = code === todayCode;
-            const count = countsByDay[code] || 0;
-
-            return (
-              <TouchableOpacity
-                key={code}
-                style={[
-                  styles.dayTab,
-                  isSelected && styles.dayTabActive,
-                  isToday && !isSelected && styles.dayTabToday,
-                ]}
-                onPress={() => setSelectedDay(code)}
-                activeOpacity={0.75}
-              >
-                <Text
-                  style={[
-                    styles.dayTabLabel,
-                    isSelected && styles.dayTabLabelActive,
-                  ]}
-                >
-                  {label}
-                </Text>
-
-                <Text
-                  style={[
-                    styles.dayTabCount,
-                    isSelected && styles.dayTabCountActive,
-                    count === 0 && !isSelected && styles.dayTabCountEmpty,
-                  ]}
-                >
-                  {String(count).padStart(2, '0')}
-                </Text>
-
-                {isToday && (
-                  <View
-                    style={[
-                      styles.todayDot,
-                      isSelected && styles.todayDotActive,
-                    ]}
-                  />
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {/* ==================== SELECTED DAY HEADER ==================== */}
-        <View style={styles.selectedDayHeader}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.selectedDayEyebrow}>
-              {selectedDay === todayCode ? 'TODAY' : 'SCHEDULE'}
-            </Text>
-            <Text style={styles.selectedDayTitle}>{selectedDayFull}</Text>
+        {/* ==================== QUICK ACTIONS ==================== */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionEyebrow}>TOOLS</Text>
+              <Text style={styles.sectionTitle}>Quick actions</Text>
+            </View>
           </View>
 
-          <View style={styles.countPill}>
-            <Text style={styles.countPillText}>
-              {selectedSchedules.length}{' '}
-              {selectedSchedules.length === 1 ? 'class' : 'classes'}
-            </Text>
+          <View style={styles.toolGrid}>
+            <ToolCard
+              icon="camera"
+              label="Scan QR"
+              sub="Verify a room"
+              onPress={() => navigation.navigate('QRScanner')}
+              accent
+            />
+            <ToolCard
+              icon="calendar"
+              label="My Schedule"
+              sub="Full week view"
+              onPress={openFullSchedule}
+            />
+            <ToolCard
+              icon="map"
+              label="Campus Map"
+              sub="Find your way"
+              onPress={() => navigation.navigate('Map')}
+            />
+            <ToolCard
+              icon="activity"
+              label="Room Status"
+              sub="See what's free"
+              onPress={() => navigation.navigate('RoomStatus')}
+            />
+            <ToolCard
+              icon="alert-triangle"
+              label="Report Ghost"
+              sub="Cancelled class"
+              onPress={handleQuickReportGhost}
+              full
+            />
           </View>
         </View>
 
-        {/* ==================== CLASS LIST ==================== */}
-        {selectedSchedules.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <View style={styles.emptyIconWrap}>
-              <Text style={styles.emptyIconText}>·</Text>
-            </View>
-            <Text style={styles.emptyTitle}>No classes scheduled</Text>
-            <Text style={styles.emptyText}>
-              {semester
-                ? `You have no classes on ${selectedDayFull}.`
-                : 'No active semester. Please contact the admin.'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.classList}>
-            {selectedSchedules.map((schedule, index) => {
-              const isGhost = !!schedule.ghostReport;
-              const live = getLiveStatus(schedule, nowMin, todayCode);
-              const accent = live
-                ? stateAccent(live.roomState)
-                : isGhost
-                ? T.slate
-                : T.crimson;
-              const isLast = index === selectedSchedules.length - 1;
-
-              return (
-                <TouchableOpacity
-                  key={schedule.id}
-                  style={[styles.classRow, !isLast && styles.classRowDivided]}
-                  activeOpacity={0.7}
-                  onPress={() => setDetailClass(schedule)}
-                >
-                  <View
-                    style={[styles.classRail, { backgroundColor: accent }]}
-                  />
-
-                  <View style={styles.classTimeCol}>
-                    <Text
-                      style={[
-                        styles.classStartTime,
-                        isGhost && styles.classStartTimeGhost,
-                      ]}
-                    >
-                      {formatTime(schedule.start_time).replace(' ', '\n')}
-                    </Text>
-                    <View style={styles.timeConnector} />
-                    <Text
-                      style={[
-                        styles.classEndTime,
-                        isGhost && styles.classEndTimeGhost,
-                      ]}
-                    >
-                      {formatTime(schedule.end_time).replace(' ', '\n')}
-                    </Text>
-                    <Text style={styles.classDuration}>
-                      {formatDuration(schedule.start_time, schedule.end_time)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.classBody}>
-                    <View style={styles.classHeaderRow}>
-                      <Text
-                        style={[
-                          styles.classSubject,
-                          isGhost && styles.classSubjectGhost,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {schedule.subject_code}
-                      </Text>
-
-                      {isGhost ? (
-                        <View
-                          style={[
-                            styles.tag,
-                            schedule.ghostReport.is_excused === true
-                              ? { backgroundColor: T.greenSoft }
-                              : schedule.ghostReport.is_excused === false
-                              ? { backgroundColor: T.amberSoft }
-                              : { backgroundColor: T.slateSoft },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.tagText,
-                              schedule.ghostReport.is_excused === true
-                                ? { color: T.green }
-                                : schedule.ghostReport.is_excused === false
-                                ? { color: T.amber }
-                                : { color: T.slate },
-                            ]}
-                          >
-                            {schedule.ghostReport.is_excused === true
-                              ? 'EXCUSED'
-                              : schedule.ghostReport.is_excused === false
-                              ? 'UNEXCUSED'
-                              : 'REPORTED'}
-                          </Text>
-                        </View>
-                      ) : (
-                        <View
-                          style={[
-                            styles.tag,
-                            schedule.isOnline
-                              ? { backgroundColor: T.blueSoft }
-                              : { backgroundColor: T.amberSoft },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.tagText,
-                              schedule.isOnline
-                                ? { color: T.blue }
-                                : { color: T.amber },
-                            ]}
-                          >
-                            {schedule.isOnline ? 'ONLINE' : 'F2F'}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <Text
-                      style={[
-                        styles.classTitle,
-                        isGhost && styles.classTitleGhost,
-                      ]}
-                      numberOfLines={2}
-                    >
-                      {schedule.course_title}
-                    </Text>
-
-                    <View style={styles.metaRow}>
-                      <Text style={styles.metaText} numberOfLines={1}>
-                        {schedule.section ? `${schedule.section} · ` : ''}
-                        {schedule.isOnline
-                          ? 'Online'
-                          : schedule.room_name || '—'}
-                      </Text>
-                    </View>
-
-                    {isGhost && (
-                      <View style={styles.ghostNote}>
-                        <Text style={styles.ghostNoteLabel}>REPORTED AS</Text>
-                        <Text style={styles.ghostNoteValue} numberOfLines={2}>
-                          {REASON_LABELS[schedule.ghostReport.reason] ||
-                            REASON_LABELS[
-                              schedule.ghostReport.excused_reason
-                            ] ||
-                            schedule.ghostReport.reason}
-                        </Text>
-                      </View>
-                    )}
-
-                    {live && !isGhost && (
-                      <View
-                        style={[
-                          styles.liveStatusRow,
-                          { borderLeftColor: stateAccent(live.roomState) },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.liveStatusDot,
-                            { backgroundColor: stateAccent(live.roomState) },
-                          ]}
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={[
-                              styles.liveStatusHeadline,
-                              { color: stateAccent(live.roomState) },
-                            ]}
-                          >
-                            {live.headline}
-                          </Text>
-                          <Text style={styles.liveStatusSubline} numberOfLines={2}>
-                            {live.subline}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-
-                  <Text style={styles.chevron}>›</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-
-        <View style={{ height: 48 }} />
+        <View style={{ height: 56 }} />
       </ScrollView>
 
       {/* ============================================================
@@ -1044,16 +1285,13 @@ const FacultyScheduleScreen = () => {
               keyboardShouldPersistTaps="handled"
             >
               {detailClass && (() => {
-                const live = getLiveStatus(detailClass, nowMin, todayCode);
-                const accent = live
-                  ? stateAccent(live.roomState)
-                  : stateAccent(detailClass.ghostReport ? 'ghost' : 'upcoming');
-                const isGhost = !!detailClass.ghostReport;
-                const acts = getAvailableActions(detailClass, nowMin, todayCode);
+                const status = getProfessorClassStatus(detailClass, nowMin);
+                const accent = stateAccent(status);
+                const isGhost = status === 'ghost';
+                const acts = getAvailableActions(detailClass, nowMin);
 
                 return (
                   <>
-                    {/* HEADER */}
                     <View style={styles.modalHeader}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
@@ -1073,29 +1311,10 @@ const FacultyScheduleScreen = () => {
                       </TouchableOpacity>
                     </View>
 
-                    {/* BADGES */}
                     <View style={styles.modalBadgesRow}>
                       {isGhost ? (
-                        <View
-                          style={[
-                            styles.modalBadge,
-                            detailClass.ghostReport.is_excused === true
-                              ? { backgroundColor: T.greenSoft }
-                              : detailClass.ghostReport.is_excused === false
-                              ? { backgroundColor: T.amberSoft }
-                              : { backgroundColor: T.slateSoft },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.modalBadgeText,
-                              detailClass.ghostReport.is_excused === true
-                                ? { color: T.green }
-                                : detailClass.ghostReport.is_excused === false
-                                ? { color: T.amber }
-                                : { color: T.slate },
-                            ]}
-                          >
+                        <View style={[styles.modalBadge, { backgroundColor: T.slateSoft }]}>
+                          <Text style={[styles.modalBadgeText, { color: T.slate }]}>
                             {detailClass.ghostReport.is_excused === true
                               ? 'REPORTED · EXCUSED'
                               : detailClass.ghostReport.is_excused === false
@@ -1107,17 +1326,19 @@ const FacultyScheduleScreen = () => {
                         <View
                           style={[
                             styles.modalBadge,
-                            detailClass.isOnline
-                              ? { backgroundColor: T.blueSoft }
-                              : { backgroundColor: T.amberSoft },
+                            {
+                              backgroundColor: detailClass.isOnline
+                                ? T.blueSoft
+                                : T.amberSoft,
+                            },
                           ]}
                         >
                           <Text
                             style={[
                               styles.modalBadgeText,
-                              detailClass.isOnline
-                                ? { color: T.blue }
-                                : { color: T.amber },
+                              {
+                                color: detailClass.isOnline ? T.blue : T.amber,
+                              },
                             ]}
                           >
                             {detailClass.isOnline ? 'ONLINE' : 'FACE-TO-FACE'}
@@ -1125,38 +1346,18 @@ const FacultyScheduleScreen = () => {
                         </View>
                       )}
 
-                      {live && (
-                        <View
-                          style={[
-                            styles.modalStatusPill,
-                            { backgroundColor: stateSoftBg(live.roomState) },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.modalStatusPillText,
-                              { color: accent },
-                            ]}
-                          >
-                            {live.headline}
-                          </Text>
-                        </View>
-                      )}
-
                       <View
                         style={[
-                          styles.modalDayPill,
-                          { backgroundColor: T.slateSoft },
+                          styles.modalStatusPill,
+                          { backgroundColor: stateSoftBg(status) },
                         ]}
                       >
-                        <Text style={styles.modalDayPillText}>
-                          {WEEK.find((w) => w.code === detailClass.day)?.full ||
-                            detailClass.day}
+                        <Text style={[styles.modalStatusPillText, { color: accent }]}>
+                          {getInlineStatusLabel(status, detailClass)}
                         </Text>
                       </View>
                     </View>
 
-                    {/* INFO GRID */}
                     <View style={styles.modalGrid}>
                       <View style={styles.modalGridItem}>
                         <Text style={styles.modalGridLabel}>SECTION</Text>
@@ -1167,9 +1368,7 @@ const FacultyScheduleScreen = () => {
                       <View style={styles.modalGridItem}>
                         <Text style={styles.modalGridLabel}>ROOM</Text>
                         <Text style={styles.modalGridValue} numberOfLines={1}>
-                          {detailClass.isOnline
-                            ? 'Online'
-                            : detailClass.room_name || '—'}
+                          {detailClass.isOnline ? 'Online' : detailClass.room_name || '—'}
                         </Text>
                       </View>
                       <View style={styles.modalGridItem}>
@@ -1186,45 +1385,76 @@ const FacultyScheduleScreen = () => {
                       </View>
                     </View>
 
-                    {/* LIVE STATUS */}
-                    {live && (
-                      <View
-                        style={[
-                          styles.modalLiveBlock,
-                          { borderLeftColor: accent },
-                        ]}
-                      >
-                        <View style={styles.modalLiveHeader}>
-                          <Text
-                            style={[
-                              styles.modalLiveHeadline,
-                              { color: accent },
-                            ]}
-                          >
-                            {live.headline}
-                          </Text>
-                          {detailClass.liveSession?.scanned_at && (
-                            <Text
-                              style={[styles.modalLiveTime, { color: accent }]}
-                            >
-                              {formatVerifiedTime(
-                                detailClass.liveSession.scanned_at
-                              )}
-                            </Text>
-                          )}
-                        </View>
-                        <Text style={styles.modalLiveSubline}>
-                          {live.subline}
-                        </Text>
-                      </View>
-                    )}
+                    {(() => {
+                      let headline = '';
+                      let subline = '';
 
-                    {/* GHOST DETAILS */}
+                      if (isGhost) {
+                        headline = 'REPORTED ABSENT';
+                        subline =
+                          detailClass.ghostReport.is_excused === true
+                            ? 'Your record is protected.'
+                            : 'Your Chair will review this.';
+                      } else if (status === 'ongoing') {
+                        headline = 'IN PROGRESS';
+                        subline = 'You are checked in for this class.';
+                      } else if (status === 'ended_early') {
+                        headline = 'ENDED EARLY';
+                        subline = detailClass.liveSession?.ended_at
+                          ? `You ended this class at ${formatVerifiedTime(
+                              detailClass.liveSession.ended_at
+                            )}`
+                          : 'You ended this class early.';
+                      } else if (status === 'starts_now') {
+                        headline = 'STARTS NOW';
+                        subline = 'Scan the room QR to begin this class.';
+                      } else if (status === 'upcoming') {
+                        headline = 'UPCOMING';
+                        subline = `Class starts at ${formatTime(
+                          detailClass.start_time
+                        )}.`;
+                      } else if (status === 'completed') {
+                        headline = 'COMPLETED';
+                        subline = 'Class has ended.';
+                      } else if (status === 'missed') {
+                        headline = 'MISSED · NO CHECK-IN';
+                        subline = 'You did not scan in for this class.';
+                      }
+
+                      return (
+                        <View
+                          style={[
+                            styles.modalLiveBlock,
+                            { borderLeftColor: accent },
+                          ]}
+                        >
+                          <View style={styles.modalLiveHeader}>
+                            <Text
+                              style={[
+                                styles.modalLiveHeadline,
+                                { color: accent },
+                              ]}
+                            >
+                              {headline}
+                            </Text>
+                            {detailClass.liveSession?.scanned_at && (
+                              <Text
+                                style={[styles.modalLiveTime, { color: accent }]}
+                              >
+                                {formatVerifiedTime(
+                                  detailClass.liveSession.scanned_at
+                                )}
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={styles.modalLiveSubline}>{subline}</Text>
+                        </View>
+                      );
+                    })()}
+
                     {isGhost && (
                       <View style={styles.modalGhostBox}>
-                        <Text style={styles.modalGhostLabel}>
-                          REPORT DETAILS
-                        </Text>
+                        <Text style={styles.modalGhostLabel}>REPORT DETAILS</Text>
                         <Text style={styles.modalGhostCause}>
                           Cause:{' '}
                           {CAUSE_LABELS[detailClass.ghostReport.cause] ||
@@ -1233,9 +1463,7 @@ const FacultyScheduleScreen = () => {
                         <Text style={styles.modalGhostReason}>
                           Reason:{' '}
                           {REASON_LABELS[detailClass.ghostReport.reason] ||
-                            REASON_LABELS[
-                              detailClass.ghostReport.excused_reason
-                            ] ||
+                            REASON_LABELS[detailClass.ghostReport.excused_reason] ||
                             detailClass.ghostReport.reason}
                         </Text>
                         {!!detailClass.ghostReport.notes && (
@@ -1246,7 +1474,6 @@ const FacultyScheduleScreen = () => {
                       </View>
                     )}
 
-                    {/* ACTIONS */}
                     {!isGhost && (
                       <View style={styles.modalActions}>
                         {acts.canNavigate && (
@@ -1254,9 +1481,7 @@ const FacultyScheduleScreen = () => {
                             style={styles.modalSecondaryBtn}
                             onPress={() => handleNavigate(detailClass)}
                           >
-                            <Text style={styles.modalSecondaryBtnText}>
-                              Navigate
-                            </Text>
+                            <Text style={styles.modalSecondaryBtnText}>Navigate</Text>
                           </TouchableOpacity>
                         )}
 
@@ -1265,9 +1490,7 @@ const FacultyScheduleScreen = () => {
                             style={styles.modalEndEarlyBtn}
                             onPress={() => handleEndClassEarly(detailClass)}
                           >
-                            <Text style={styles.modalEndEarlyBtnText}>
-                              End Class Early
-                            </Text>
+                            <Text style={styles.modalEndEarlyBtnText}>End Class Early</Text>
                           </TouchableOpacity>
                         )}
 
@@ -1276,9 +1499,7 @@ const FacultyScheduleScreen = () => {
                             style={styles.modalPrimaryBtn}
                             onPress={() => handleScanQR(detailClass)}
                           >
-                            <Text style={styles.modalPrimaryBtnText}>
-                              Scan QR
-                            </Text>
+                            <Text style={styles.modalPrimaryBtnText}>Scan QR</Text>
                           </TouchableOpacity>
                         )}
 
@@ -1293,19 +1514,14 @@ const FacultyScheduleScreen = () => {
                           </TouchableOpacity>
                         )}
 
-                        {!acts.canScan &&
-                          !acts.canEndEarly &&
-                          !acts.canReportGhost &&
-                          !acts.canNavigate && (
-                            <TouchableOpacity
-                              style={styles.modalPrimaryBtn}
-                              onPress={closeDetail}
-                            >
-                              <Text style={styles.modalPrimaryBtnText}>
-                                Close
-                              </Text>
-                            </TouchableOpacity>
-                          )}
+                        {!acts.canScan && !acts.canEndEarly && !acts.canReportGhost && !acts.canNavigate && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={closeDetail}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>Close</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     )}
 
@@ -1324,81 +1540,195 @@ const FacultyScheduleScreen = () => {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ============================================================
+          LOGOUT CONFIRMATION MODAL
+          ============================================================ */}
+      <Modal
+        visible={logoutModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeLogoutModal}
+      >
+        <Pressable style={styles.logoutBackdrop} onPress={closeLogoutModal}>
+          <Pressable style={styles.logoutCard} onPress={() => {}}>
+            <View style={styles.logoutToneStrip}>
+              <View style={styles.logoutToneDot} />
+              <Text style={styles.logoutToneLabel}>SIGN OUT</Text>
+            </View>
+
+            <View style={styles.logoutBadgeWrap}>
+              <View style={styles.logoutBadge}>
+                <Feather name="log-out" size={28} color={T.crimson} />
+              </View>
+            </View>
+
+            <Text style={styles.logoutCardTitle}>Log out of UniNav?</Text>
+            <Text style={styles.logoutCardSubtitle}>
+              You'll be signed out of your faculty account and will need to
+              log in again to access your portal.
+            </Text>
+
+            {!!fullName && (
+              <View style={styles.logoutAccountPill}>
+                <View style={styles.logoutAccountAvatar}>
+                  <Text style={styles.logoutAccountAvatarText}>{initials}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.logoutAccountLabel}>SIGNED IN AS</Text>
+                  <Text style={styles.logoutAccountName} numberOfLines={1}>
+                    {fullName}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.logoutActions}>
+              <TouchableOpacity
+                style={styles.logoutCancelBtn}
+                onPress={closeLogoutModal}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.logoutCancelText}>Stay signed in</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.logoutConfirmBtn}
+                onPress={performLogout}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <View style={styles.logoutConfirmIconChip}>
+                      <Feather name="log-out" size={12} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.logoutConfirmText}>Log out</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
 
 // ============================================================
+// SUB-COMPONENTS
+// ============================================================
+
+const StatBlock = ({ label, value, tone }) => {
+  const color =
+    tone === 'amber' ? T.amber :
+    tone === 'green' ? T.green :
+    tone === 'red' ? T.red :
+    tone === 'slate' ? T.slate :
+    T.ink;
+  return (
+    <View style={styles.statBlock}>
+      <Text style={[styles.statValue, { color }]}>{String(value).padStart(2, '0')}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+};
+
+const Banner = ({ tone, title, body }) => {
+  const stripe =
+    tone === 'green' ? T.green :
+    tone === 'red' ? T.red :
+    T.amber;
+  return (
+    <View style={styles.banner}>
+      <View style={[styles.bannerStripe, { backgroundColor: stripe }]} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.bannerTitle}>{title}</Text>
+        <Text style={styles.bannerBody}>{body}</Text>
+      </View>
+    </View>
+  );
+};
+
+const ToolCard = ({ icon, label, sub, onPress, accent, full }) => (
+  <TouchableOpacity
+    style={[
+      styles.toolCard,
+      full && styles.toolCardFull,
+      accent && styles.toolCardAccent,
+    ]}
+    onPress={onPress}
+    activeOpacity={0.75}
+  >
+    <View
+      style={[
+        styles.toolIconWrap,
+        accent && styles.toolIconWrapAccent,
+      ]}
+    >
+      <Feather
+        name={icon}
+        size={20}
+        color={accent ? '#FFFFFF' : T.crimson}
+      />
+    </View>
+    <Text
+      style={[styles.toolLabel, accent && styles.toolLabelAccent]}
+      numberOfLines={1}
+    >
+      {label}
+    </Text>
+    <Text
+      style={[styles.toolSub, accent && styles.toolSubAccent]}
+      numberOfLines={1}
+    >
+      {sub}
+    </Text>
+  </TouchableOpacity>
+);
+
+// ============================================================
 // LOADING SKELETON
 // ============================================================
 
-const FacultyScheduleSkeleton = () => (
+const ProfessorDashboardSkeleton = () => (
   <View style={styles.container}>
     <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
-    <View style={styles.header}>
-      <View style={styles.headerContent}>
-        <View style={styles.headerTopRow}>
-          <Skeleton width={34} height={34} radius={17} />
-          <View style={{ flex: 1, paddingLeft: 12, gap: 6 }}>
-            <Skeleton width={60} height={9} radius={3} />
-            <Skeleton width={140} height={18} radius={4} />
+    <View style={styles.scrollContent}>
+      <View style={styles.header}>
+        <View style={styles.headerContent}>
+          <View style={styles.headerTopRow}>
+            <SkeletonCircle size={44} />
+            <View style={{ flex: 1, paddingLeft: 12, gap: 6 }}>
+              <Skeleton width={80} height={9} radius={3} />
+              <Skeleton width={160} height={13} radius={3} />
+            </View>
+            <Skeleton width={98} height={34} radius={999} />
           </View>
-          <View style={{ width: 34 }} />
+          <Skeleton width={210} height={30} radius={6} style={{ marginTop: 22 }} />
         </View>
       </View>
-    </View>
 
-    <View style={styles.scrollContent}>
       <View style={styles.statStrip}>
-        {[1, 2, 3].map((i) => (
-          <View
-            key={i}
-            style={[
-              styles.statBlock,
-              i < 3 && { borderRightWidth: 1, borderRightColor: T.hair2 },
-            ]}
-          >
-            <Skeleton width={34} height={22} radius={4} />
+        {[1, 2, 3, 4].map((i) => (
+          <View key={i} style={[styles.statBlock, i < 4 && { borderRightWidth: 1, borderRightColor: T.hair2 }]}>
+            <Skeleton width={34} height={26} radius={4} />
             <Skeleton width={50} height={9} radius={3} style={{ marginTop: 8 }} />
           </View>
         ))}
       </View>
 
-      <View style={{ flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 16 }}>
-        {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-          <Skeleton key={i} width={60} height={72} radius={12} />
-        ))}
+      <View style={styles.hero}>
+        <Skeleton width={70} height={10} radius={3} />
+        <Skeleton width="55%" height={34} radius={6} style={{ marginTop: 14 }} />
+        <Skeleton width="85%" height={16} radius={4} style={{ marginTop: 8 }} />
+        <Skeleton width="100%" height={60} radius={10} style={{ marginTop: 18 }} />
+        <Skeleton width="100%" height={48} radius={12} style={{ marginTop: 14 }} />
       </View>
-
-      <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14 }}>
-        <Skeleton width={80} height={9} radius={3} />
-        <Skeleton width={130} height={22} radius={4} style={{ marginTop: 6 }} />
-      </View>
-
-      {[1, 2, 3].map((i) => (
-        <View
-          key={i}
-          style={{
-            flexDirection: 'row',
-            paddingHorizontal: 16,
-            paddingVertical: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: T.hair2,
-          }}
-        >
-          <View style={{ width: 56 }}>
-            <Skeleton width={44} height={14} radius={3} />
-            <Skeleton width={44} height={14} radius={3} style={{ marginTop: 12 }} />
-          </View>
-          <View style={{ flex: 1, paddingLeft: 12 }}>
-            <Skeleton width={70} height={14} radius={4} />
-            <Skeleton width="85%" height={14} radius={4} style={{ marginTop: 8 }} />
-            <Skeleton width="55%" height={12} radius={4} style={{ marginTop: 8 }} />
-            <Skeleton width="100%" height={40} radius={8} style={{ marginTop: 12 }} />
-          </View>
-        </View>
-      ))}
     </View>
   </View>
 );
@@ -1409,125 +1739,167 @@ const FacultyScheduleSkeleton = () => (
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.canvas },
-
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 30,
-    backgroundColor: T.canvas,
-  },
-  loadingText: { marginTop: 12, color: T.inkMuted, fontSize: 14 },
-
-  errorIconWrap: {
-    width: 60, height: 60, borderRadius: 30,
-    backgroundColor: '#FDECEC',
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 16,
-  },
-  errorIcon: { fontSize: 28, fontWeight: '900', color: T.crimson },
-  errorTitle: {
-    fontSize: 20, fontWeight: '900', color: T.ink,
-    marginBottom: 8, textAlign: 'center',
-  },
-  errorText: {
-    fontSize: 14, color: T.inkMuted,
-    textAlign: 'center', lineHeight: 20,
-  },
-  errorRetryButton: {
-    marginTop: 20, paddingHorizontal: 20, paddingVertical: 12,
-    borderRadius: 10, backgroundColor: T.crimson,
-  },
-  errorRetryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
+  scrollContent: { paddingBottom: 20 },
 
   // ==================== HEADER ====================
   header: {
     backgroundColor: T.crimson,
-    paddingTop: 54,
-    paddingBottom: 22,
+    paddingTop: 58,
+    paddingBottom: 32,
     overflow: 'hidden',
   },
-  headerDecor: {
+  headerDecor1: {
     position: 'absolute',
-    top: -60,
-    right: -40,
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    top: -80,
+    right: -60,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     backgroundColor: T.crimsonLight,
-    opacity: 0.4,
+    opacity: 0.35,
+  },
+  headerDecor2: {
+    position: 'absolute',
+    top: 40,
+    right: 40,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFFFFF',
+    opacity: 0.06,
   },
   headerContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
   },
   headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  backButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  avatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.18)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backText: {
+  avatarText: {
+    fontSize: 15,
+    fontWeight: '900',
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '600',
-    lineHeight: 22,
-    marginTop: -4,
+    letterSpacing: 1,
   },
   headerEyebrow: {
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 2,
     color: '#FFFFFF',
-    opacity: 0.65,
+    opacity: 0.6,
     marginBottom: 4,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
-  semesterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 14,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    gap: 7,
-  },
-  semesterDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#7CFC9E',
-  },
-  semesterText: {
-    fontSize: 10,
-    color: '#FFFFFF',
+  headerName: {
+    fontSize: 14,
     fontWeight: '800',
-    letterSpacing: 0.4,
+    color: '#FFFFFF',
+    opacity: 0.95,
+    letterSpacing: -0.1,
   },
 
-  scrollContent: { paddingBottom: 20 },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 5,
+    paddingRight: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+    gap: 8,
+    minHeight: 34,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  logoutIconChip: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutLabel: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+  },
+
+  headerGreeting: {
+    fontSize: 34,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.8,
+    marginTop: 26,
+    lineHeight: 38,
+  },
+  headerDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  dateBlock: {
+    alignItems: 'center',
+    minWidth: 44,
+  },
+  dateNumber: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.6,
+    fontVariant: ['tabular-nums'],
+  },
+  dateMonth: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    opacity: 0.7,
+    letterSpacing: 1.6,
+    marginTop: 2,
+  },
+  dateDivider: {
+    width: 1,
+    height: 34,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+    marginHorizontal: 14,
+  },
+  dateWeekday: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.1,
+  },
+  dateSemester: {
+    fontSize: 11,
+    color: '#FFFFFF',
+    opacity: 0.65,
+    fontWeight: '600',
+    marginTop: 3,
+    letterSpacing: 0.2,
+  },
 
   // ==================== STAT STRIP ====================
   statStrip: {
     flexDirection: 'row',
     backgroundColor: T.surface,
-    marginTop: 16,
+    marginTop: -18,
     marginHorizontal: 16,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: T.hair,
     shadowColor: '#000',
@@ -1550,7 +1922,6 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 22,
     fontWeight: '900',
-    color: T.crimson,
     letterSpacing: -0.6,
     fontVariant: ['tabular-nums'],
   },
@@ -1562,299 +1933,492 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
   },
 
-  // ==================== DAY TABS ====================
-  dayTabsScroll: { maxHeight: 96, marginTop: 20 },
-  dayTabsContent: { paddingHorizontal: 16, gap: 8 },
-  dayTab: {
-    minWidth: 62,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: T.surface,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: T.hair,
-    position: 'relative',
-  },
-  dayTabActive: {
-    backgroundColor: T.crimson,
-    borderColor: T.crimson,
-  },
-  dayTabToday: {
-    borderColor: '#F3C6C6',
-  },
-  dayTabLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: T.inkSoft,
-    marginBottom: 8,
-    letterSpacing: -0.1,
-  },
-  dayTabLabelActive: { color: '#FFFFFF' },
-  dayTabCount: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: T.ink,
-    letterSpacing: -0.4,
-    fontVariant: ['tabular-nums'],
-  },
-  dayTabCountActive: { color: '#FFFFFF' },
-  dayTabCountEmpty: { color: T.inkFaint, opacity: 0.6 },
-  todayDot: {
-    position: 'absolute',
-    bottom: 5,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: T.crimson,
-  },
-  todayDotActive: { backgroundColor: '#FFFFFF' },
-
-  // ==================== SELECTED DAY HEADER ====================
-  selectedDayHeader: {
+  // ==================== BANNERS ====================
+  banner: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 20,
-    paddingTop: 26,
-    paddingBottom: 12,
-    gap: 10,
-  },
-  selectedDayEyebrow: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 2.2,
-    color: T.crimson,
-    marginBottom: 5,
-  },
-  selectedDayTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: T.ink,
-    letterSpacing: -0.4,
-  },
-  countPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: T.surface,
-    borderWidth: 1,
-    borderColor: T.hair,
-  },
-  countPillText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: T.inkMuted,
-    letterSpacing: 0.6,
-  },
-
-  // ==================== CLASS LIST ====================
-  classList: {
     marginHorizontal: 16,
+    marginTop: 14,
     backgroundColor: T.surface,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: T.hair,
     overflow: 'hidden',
-  },
-  classRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    paddingVertical: 16,
     paddingRight: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
   },
-  classRowDivided: {
-    borderBottomWidth: 1,
-    borderBottomColor: T.hair2,
-  },
-  classRail: {
-    width: 3,
+  bannerStripe: {
+    width: 4,
+    alignSelf: 'stretch',
     marginRight: 12,
-    borderRadius: 2,
   },
-  classTimeCol: {
-    width: 62,
-    alignItems: 'flex-start',
-    paddingRight: 8,
-    paddingTop: 2,
+  bannerTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: T.ink,
+    marginBottom: 3,
+    letterSpacing: -0.1,
   },
-  classStartTime: {
-    fontSize: 12,
+  bannerBody: {
+    fontSize: 11,
+    color: T.inkMuted,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+
+  // ==================== HERO ====================
+  hero: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    padding: 22,
+    backgroundColor: T.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: T.hair,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  heroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  heroEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2.2,
+    color: T.inkFaint,
+  },
+  heroStatusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    gap: 6,
+  },
+  heroStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  heroStatusText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+  },
+  heroSubject: {
+    fontSize: 36,
     fontWeight: '900',
     color: T.crimson,
-    lineHeight: 14,
-    letterSpacing: -0.2,
+    letterSpacing: -1,
+    lineHeight: 40,
   },
-  classStartTimeGhost: {
-    color: T.inkFaint,
-    textDecorationLine: 'line-through',
+  heroTitle: {
+    fontSize: 15,
+    color: T.inkSoft,
+    marginTop: 4,
+    fontWeight: '500',
+    lineHeight: 21,
   },
-  timeConnector: {
+  heroProgressWrap: {
+    marginTop: 18,
+  },
+  heroProgressTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: T.hair2,
+    overflow: 'hidden',
+  },
+  heroProgressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  heroProgressLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: T.inkMuted,
+    marginTop: 8,
+    letterSpacing: 0.4,
+  },
+  heroMetaGrid: {
+    flexDirection: 'row',
+    marginTop: 18,
+    backgroundColor: '#FAFAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
+    paddingVertical: 14,
+  },
+  heroMetaItem: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  heroMetaDivider: {
     width: 1,
-    height: 14,
     backgroundColor: T.hair,
-    marginLeft: 2,
     marginVertical: 4,
   },
-  classEndTime: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: T.inkSoft,
-    lineHeight: 14,
-  },
-  classEndTimeGhost: { color: T.inkFaint },
-  classDuration: {
+  heroMetaLabel: {
     fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.4,
     color: T.inkFaint,
-    marginTop: 6,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    marginBottom: 6,
   },
-  classBody: { flex: 1, paddingRight: 6 },
-  classHeaderRow: {
+  heroMetaValue: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.2,
+  },
+  heroMetaSub: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: T.inkMuted,
+    marginTop: 3,
+  },
+  heroNote: {
+    marginTop: 16,
+    paddingLeft: 12,
+    paddingVertical: 2,
+    borderLeftWidth: 3,
+  },
+  heroNoteText: {
+    fontSize: 12,
+    color: T.inkSoft,
+    fontWeight: '500',
+    lineHeight: 17,
+  },
+
+  actionPrimary: {
+    marginTop: 18,
+    paddingVertical: 15,
+    borderRadius: 12,
+    backgroundColor: T.crimson,
+    alignItems: 'center',
+  },
+  actionPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  actionOutlineAmber: {
+    marginTop: 18,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#C77700',
+    backgroundColor: '#FFFAF0',
+    alignItems: 'center',
+  },
+  actionOutlineAmberText: {
+    color: '#C77700',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  actionGhost: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: T.hair,
+    backgroundColor: T.surface,
+    alignItems: 'center',
+  },
+  actionGhostText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: T.ink,
+    letterSpacing: 0.3,
+  },
+
+  // ==================== EMPTY HERO ====================
+  emptyHero: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    padding: 32,
+    backgroundColor: T.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: T.hair,
+    alignItems: 'center',
+  },
+  emptyHeroIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: T.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyHeroTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.2,
+  },
+  emptyHeroBody: {
+    fontSize: 13,
+    color: T.inkMuted,
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 19,
+  },
+
+  // ==================== SECTIONS ====================
+  section: {
+    marginTop: 32,
+    paddingHorizontal: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    paddingHorizontal: 2,
+  },
+  sectionEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: T.crimson,
+    letterSpacing: 2.2,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+  },
+  sectionLink: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: T.crimson,
+    letterSpacing: 0.2,
+    marginBottom: 4,
+  },
+
+  // ==================== TIMELINE ====================
+  timeline: {
+    paddingLeft: 2,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    minHeight: 80,
+  },
+  timelineRail: {
+    width: 54,
+    alignItems: 'center',
+    paddingTop: 8,
+  },
+  timelineTime: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: T.ink,
+    textAlign: 'center',
+    lineHeight: 12,
+    letterSpacing: -0.2,
+    marginBottom: 6,
+  },
+  timelineDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.surface,
+  },
+  timelineDotInner: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    marginTop: 4,
+    marginBottom: -4,
+  },
+  timelineCard: {
+    flex: 1,
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
+    padding: 14,
+    marginLeft: 10,
+    marginBottom: 12,
+  },
+  timelineCardLive: {
+    borderColor: '#F3C6C6',
+    shadowColor: T.crimson,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  timelineCardGhost: {
+    opacity: 0.75,
+  },
+  timelineCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 6,
     gap: 8,
   },
-  classSubject: {
+  timelineSubject: {
     fontSize: 13,
     fontWeight: '900',
     color: T.crimson,
     letterSpacing: 0.2,
     flex: 1,
   },
-  classSubjectGhost: { color: T.slate },
-  tag: {
+  timelineStatusChip: {
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 5,
   },
-  tagText: {
+  timelineStatusChipText: {
     fontSize: 8,
     fontWeight: '900',
     letterSpacing: 0.8,
   },
-  classTitle: {
+  timelineTitle: {
     fontSize: 14,
-    color: T.ink,
     fontWeight: '600',
+    color: T.ink,
     lineHeight: 19,
-    marginBottom: 6,
   },
-  classTitleGhost: {
-    color: T.inkMuted,
+  timelineTitleGhost: {
     textDecorationLine: 'line-through',
+    color: T.inkMuted,
   },
-  metaRow: {
+  timelineMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: 5,
   },
-  metaText: {
+  timelineMetaIcon: {
+    fontSize: 14,
+    color: T.inkFaint,
+    marginRight: 6,
+    lineHeight: 14,
+  },
+  timelineMeta: {
     fontSize: 11,
     color: T.inkMuted,
     fontWeight: '500',
     flex: 1,
   },
 
-  ghostNote: {
-    marginTop: 10,
-    paddingLeft: 10,
-    borderLeftWidth: 2,
-    borderLeftColor: T.slate,
-  },
-  ghostNoteLabel: {
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 1.4,
-    color: T.inkFaint,
-    marginBottom: 3,
-  },
-  ghostNoteValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: T.inkSoft,
-  },
-
-  liveStatusRow: {
+  moreRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: 12,
-    paddingLeft: 10,
-    borderLeftWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    marginTop: 4,
+    marginLeft: 64,
+    backgroundColor: T.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
     gap: 8,
   },
-  liveStatusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginTop: 5,
+  moreText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: T.crimson,
+    letterSpacing: 0.2,
   },
-  liveStatusHeadline: {
-    fontSize: 10,
+  moreArrow: {
+    fontSize: 14,
     fontWeight: '900',
-    letterSpacing: 0.6,
-    marginBottom: 3,
-  },
-  liveStatusSubline: {
-    fontSize: 11,
-    color: T.inkMuted,
-    fontWeight: '500',
-    lineHeight: 15,
+    color: T.crimson,
   },
 
-  chevron: {
-    fontSize: 22,
-    color: T.inkFaint,
-    fontWeight: '300',
-    alignSelf: 'center',
-    paddingLeft: 6,
-    lineHeight: 22,
-  },
-
-  emptyCard: {
-    marginHorizontal: 16,
-    padding: 40,
+  emptyList: {
+    padding: 28,
     backgroundColor: T.surface,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: T.hair,
     alignItems: 'center',
   },
-  emptyIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: T.hair2,
+  emptyListText: {
+    fontSize: 13,
+    color: T.inkMuted,
+    fontWeight: '500',
+  },
+
+  // ==================== TOOLS ====================
+  toolGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  toolCard: {
+    width: '48%',
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
+  },
+  toolCardFull: {
+    width: '100%',
+  },
+  toolCardAccent: {
+    backgroundColor: T.crimson,
+    borderColor: T.crimson,
+  },
+  toolIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#FDECEC',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
   },
-  emptyIconText: {
-    fontSize: 34,
-    color: T.inkFaint,
-    lineHeight: 30,
-    marginTop: -6,
+  toolIconWrapAccent: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
-  emptyTitle: {
-    fontSize: 16,
+  toolLabel: {
+    fontSize: 14,
     fontWeight: '900',
     color: T.ink,
     letterSpacing: -0.2,
-    marginBottom: 6,
   },
-  emptyText: {
-    fontSize: 13,
+  toolLabelAccent: {
+    color: '#FFFFFF',
+  },
+  toolSub: {
+    fontSize: 11,
     color: T.inkMuted,
-    textAlign: 'center',
-    lineHeight: 19,
+    marginTop: 3,
+    fontWeight: '500',
+  },
+  toolSubAccent: {
+    color: 'rgba(255,255,255,0.75)',
   },
 
-  // ============================================================
-  // MODAL
-  // ============================================================
+  // ==================== CLASS MODAL ====================
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -1919,6 +2483,7 @@ const styles = StyleSheet.create({
     color: T.inkSoft,
     fontWeight: '700',
   },
+
   modalBadgesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1945,17 +2510,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.6,
   },
-  modalDayPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  modalDayPillText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-    color: T.inkSoft,
-  },
+
   modalGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1981,6 +2536,7 @@ const styles = StyleSheet.create({
     color: T.ink,
     letterSpacing: -0.1,
   },
+
   modalLiveBlock: {
     paddingLeft: 12,
     paddingVertical: 4,
@@ -2005,6 +2561,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 17,
   },
+
   modalGhostBox: {
     backgroundColor: '#FAFAFA',
     borderRadius: 12,
@@ -2012,8 +2569,6 @@ const styles = StyleSheet.create({
     borderColor: T.hair,
     padding: 14,
     marginBottom: 16,
-    borderLeftWidth: 3,
-    borderLeftColor: T.slate,
   },
   modalGhostLabel: {
     fontSize: 9,
@@ -2041,6 +2596,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 4,
   },
+
   modalActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2117,6 +2673,174 @@ const styles = StyleSheet.create({
     color: '#B26A00',
     textDecorationLine: 'underline',
   },
+
+  // ============================================================
+  // LOGOUT CONFIRMATION MODAL
+  // ============================================================
+  logoutBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(11,11,13,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  logoutCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: T.surface,
+    borderRadius: 22,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  logoutToneStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: T.redSoft,
+    gap: 8,
+    marginBottom: 20,
+  },
+  logoutToneDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: T.crimson,
+  },
+  logoutToneLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    color: T.crimson,
+  },
+  logoutBadgeWrap: {
+    marginBottom: 18,
+  },
+  logoutBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#FDECEC',
+    borderWidth: 2,
+    borderColor: '#F5C2C0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutCardTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  logoutCardSubtitle: {
+    fontSize: 13,
+    color: T.inkMuted,
+    textAlign: 'center',
+    lineHeight: 19,
+    fontWeight: '500',
+    paddingHorizontal: 6,
+    marginBottom: 20,
+  },
+  logoutAccountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
+    padding: 12,
+    gap: 12,
+    marginBottom: 22,
+  },
+  logoutAccountAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: T.crimson,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutAccountAvatarText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  logoutAccountLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
+    marginBottom: 3,
+  },
+  logoutAccountName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: T.ink,
+    letterSpacing: -0.1,
+  },
+  logoutActions: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    gap: 10,
+  },
+  logoutCancelBtn: {
+    flex: 1,
+    paddingVertical: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
+    backgroundColor: T.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutCancelText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: 0.2,
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingLeft: 5,
+    paddingRight: 14,
+    borderRadius: 12,
+    backgroundColor: T.crimson,
+    gap: 8,
+    minHeight: 48,
+    shadowColor: T.crimson,
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  logoutConfirmIconChip: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutConfirmText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
 });
 
-export default FacultyScheduleScreen;
+export default ProfessorDashboard;

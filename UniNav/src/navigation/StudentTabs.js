@@ -1,5 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import { Text, View, StyleSheet } from 'react-native'
+import { View, StyleSheet } from 'react-native'
+import { Feather } from '@expo/vector-icons'
 
 import StudentDashboard from '../screens/studentSrc/studentDashboard'
 import StudentScheduleScreen from '../screens/studentSrc/StudentScheduleScreen'
@@ -7,11 +8,26 @@ import StudentSettingsScreen from '../screens/studentSrc/StudentSettingsScreen'
 
 const Tab = createBottomTabNavigator()
 
-const TabIcon = ({ emoji, focused }) => (
+// ============================================================
+// TUNE THESE
+// ============================================================
+
+// Match the quick-action Feather icon size on the dashboard.
+// Quick actions use 20. Feather glyphs render slightly tighter
+// than emoji at the same size, so 22 reads as visually equal.
+const ICON_SIZE = 22
+
+const ACTIVE = '#8B0000'
+const INACTIVE = '#9CA3AF'
+
+const TabIcon = ({ name, focused }) => (
   <View style={styles.tabIconWrap}>
-    <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>
-      {emoji}
-    </Text>
+    <Feather
+      name={name}
+      size={ICON_SIZE}
+      color={focused ? ACTIVE : INACTIVE}
+    />
+    {focused && <View style={styles.tabIconDot} />}
   </View>
 )
 
@@ -21,8 +37,8 @@ const StudentTabs = () => {
       initialRouteName="Home"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#8B0000',
-        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarActiveTintColor: ACTIVE,
+        tabBarInactiveTintColor: INACTIVE,
         tabBarStyle: {
           height: 64,
           paddingBottom: 8,
@@ -31,7 +47,11 @@ const StudentTabs = () => {
           borderTopColor: '#ECECEC',
           backgroundColor: '#FFFFFF',
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginTop: 2 },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '700',
+          marginTop: 2,
+        },
       }}
     >
       <Tab.Screen
@@ -39,7 +59,9 @@ const StudentTabs = () => {
         component={StudentDashboard}
         options={{
           tabBarLabel: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="home" focused={focused} />
+          ),
         }}
       />
       <Tab.Screen
@@ -47,7 +69,9 @@ const StudentTabs = () => {
         component={StudentScheduleScreen}
         options={{
           tabBarLabel: 'Schedule',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📅" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="calendar" focused={focused} />
+          ),
         }}
       />
       <Tab.Screen
@@ -55,7 +79,9 @@ const StudentTabs = () => {
         component={StudentSettingsScreen}
         options={{
           tabBarLabel: 'Settings',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="⚙️" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="settings" focused={focused} />
+          ),
         }}
       />
     </Tab.Navigator>
@@ -63,9 +89,20 @@ const StudentTabs = () => {
 }
 
 const styles = StyleSheet.create({
-  tabIconWrap: { alignItems: 'center', justifyContent: 'center' },
-  tabIcon: { fontSize: 20, opacity: 0.5 },
-  tabIconActive: { opacity: 1 },
+  tabIconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: ICON_SIZE + 4,
+    width: ICON_SIZE + 12,
+  },
+  tabIconDot: {
+    position: 'absolute',
+    bottom: -2,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: ACTIVE,
+  },
 })
 
 export default StudentTabs

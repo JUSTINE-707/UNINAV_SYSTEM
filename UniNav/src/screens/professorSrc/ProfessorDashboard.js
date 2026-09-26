@@ -10,12 +10,16 @@ import {
   StatusBar,
   Modal,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, CommonActions } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useSemester } from '../../context/SemesterContext';
+import { navigate, navigationRef } from '../../navigation/navigationRef';
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
+import SemesterProgressStrip from '../../components/SemesterProgressStrip';
 
 // ============================================================
 // DESIGN TOKENS
@@ -23,7 +27,6 @@ import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
 
 const T = {
   crimson: '#8B0000',
-  crimsonDeep: '#5A0000',
   crimsonLight: '#A61B1B',
   ink: '#0B0B0D',
   inkSoft: '#3F3F46',
@@ -299,6 +302,9 @@ const ProfessorDashboard = ({ navigation }) => {
 
   const [detailClass, setDetailClass] = useState(null);
 
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
@@ -309,6 +315,54 @@ const ProfessorDashboard = ({ navigation }) => {
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
     };
   }, []);
+
+  // ============================================================
+  // LOGOUT
+  // ============================================================
+
+  const performLogout = async () => {
+    try {
+      setLoggingOut(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      setLogoutModalOpen(false);
+
+      try {
+        if (
+          navigationRef &&
+          typeof navigationRef.isReady === 'function' &&
+          navigationRef.isReady()
+        ) {
+          navigationRef.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            })
+          );
+        } else {
+          navigate('Login');
+        }
+      } catch (navErr) {
+        console.warn('[Logout] nav reset failed, falling back:', navErr);
+        navigate('Login');
+      }
+    } catch (err) {
+      console.error('[Logout] error:', err);
+      Alert.alert(
+        'Could not log out',
+        err?.message || 'Something went wrong. Please try again.'
+      );
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const openLogoutModal = () => setLogoutModalOpen(true);
+  const closeLogoutModal = () => {
+    if (loggingOut) return;
+    setLogoutModalOpen(false);
+  };
 
   // ============================================================
   // DATA LOAD
@@ -323,7 +377,6 @@ const ProfessorDashboard = ({ navigation }) => {
         return;
       }
 
-      // Grab profile + full name in parallel
       const [profileRes, userRes] = await Promise.all([
         supabase
           .from('faculty')
@@ -622,7 +675,6 @@ const ProfessorDashboard = ({ navigation }) => {
 
   const moreCount = Math.max(0, todayClasses.length - previewClasses.length);
 
-  // Progress through the current class window
   const heroProgress = (() => {
     if (!nextClass) return 0;
     const start = timeToMinutes(nextClass.start_time);
@@ -657,7 +709,6 @@ const ProfessorDashboard = ({ navigation }) => {
       >
         {/* ==================== HERO HEADER ==================== */}
         <View style={styles.header}>
-          {/* Decorative layered shapes */}
           <View style={styles.headerDecor1} />
           <View style={styles.headerDecor2} />
 
@@ -675,10 +726,21 @@ const ProfessorDashboard = ({ navigation }) => {
               </View>
 
               <TouchableOpacity
-                onPress={() => navigation.navigate('Login')}
+                onPress={openLogoutModal}
                 style={styles.logoutButton}
+                disabled={loggingOut}
+                activeOpacity={0.8}
               >
-                <Text style={styles.logoutText}>EXIT</Text>
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <View style={styles.logoutIconChip}>
+                      <Feather name="log-out" size={12} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.logoutLabel}>LOG OUT</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -703,6 +765,9 @@ const ProfessorDashboard = ({ navigation }) => {
             </View>
           </View>
         </View>
+
+        {/* ==================== SEMESTER PROGRESS ==================== */}
+        <SemesterProgressStrip accentColor={T.crimson} variant="light" />
 
         {/* ==================== STAT STRIP ==================== */}
         <View style={styles.statStrip}>
@@ -744,7 +809,6 @@ const ProfessorDashboard = ({ navigation }) => {
         {/* ==================== NEXT CLASS HERO ==================== */}
         {nextClass && nextStatus ? (
           <View style={styles.hero}>
-            {/* Eyebrow + status */}
             <View style={styles.heroTop}>
               <Text style={styles.heroEyebrow}>UP NEXT</Text>
               <View
@@ -801,7 +865,6 @@ const ProfessorDashboard = ({ navigation }) => {
               </View>
             </View>
 
-            {/* Subject + title */}
             <Text style={styles.heroSubject} numberOfLines={1}>
               {nextClass.subject_code}
             </Text>
@@ -809,10 +872,9 @@ const ProfessorDashboard = ({ navigation }) => {
               {nextClass.course_title}
             </Text>
 
-            {/* Progress bar for in-progress classes */}
             {(nextStatus === 'ongoing' || nextStatus === 'starts_now') &&
               !nextClass.isOnline &&
-              !nextStatus !== 'ghost' && (
+              nextStatus !== 'ghost' && (
                 <View style={styles.heroProgressWrap}>
                   <View style={styles.heroProgressTrack}>
                     <View
@@ -833,7 +895,6 @@ const ProfessorDashboard = ({ navigation }) => {
                 </View>
               )}
 
-            {/* Meta grid */}
             <View style={styles.heroMetaGrid}>
               <View style={styles.heroMetaItem}>
                 <Text style={styles.heroMetaLabel}>TIME</Text>
@@ -858,7 +919,6 @@ const ProfessorDashboard = ({ navigation }) => {
               </View>
             </View>
 
-            {/* Note */}
             <View
               style={[
                 styles.heroNote,
@@ -893,7 +953,6 @@ const ProfessorDashboard = ({ navigation }) => {
               </Text>
             </View>
 
-            {/* Actions */}
             {(() => {
               const acts = getAvailableActions(nextClass, nowMin);
 
@@ -1006,7 +1065,7 @@ const ProfessorDashboard = ({ navigation }) => {
         ) : (
           <View style={styles.emptyHero}>
             <View style={styles.emptyHeroIcon}>
-              <Text style={styles.emptyHeroIconText}>✓</Text>
+              <Feather name="check" size={24} color={T.green} />
             </View>
             <Text style={styles.emptyHeroTitle}>
               {semester ? 'All classes done' : 'No active semester'}
@@ -1056,7 +1115,6 @@ const ProfessorDashboard = ({ navigation }) => {
                       activeOpacity={0.7}
                       onPress={() => setDetailClass(cls)}
                     >
-                      {/* Time rail */}
                       <View style={styles.timelineRail}>
                         <Text style={styles.timelineTime}>
                           {formatTime(cls.start_time).replace(' ', '\n')}
@@ -1087,7 +1145,6 @@ const ProfessorDashboard = ({ navigation }) => {
                         )}
                       </View>
 
-                      {/* Card */}
                       <View
                         style={[
                           styles.timelineCard,
@@ -1175,32 +1232,32 @@ const ProfessorDashboard = ({ navigation }) => {
 
           <View style={styles.toolGrid}>
             <ToolCard
-              glyph="▣"
+              icon="camera"
               label="Scan QR"
               sub="Verify a room"
               onPress={() => navigation.navigate('QRScanner')}
               accent
             />
             <ToolCard
-              glyph="▤"
+              icon="calendar"
               label="My Schedule"
               sub="Full week view"
               onPress={openFullSchedule}
             />
             <ToolCard
-              glyph="◈"
+              icon="map"
               label="Campus Map"
               sub="Find your way"
               onPress={() => navigation.navigate('Map')}
             />
             <ToolCard
-              glyph="◇"
+              icon="activity"
               label="Room Status"
               sub="See what's free"
               onPress={() => navigation.navigate('RoomStatus')}
             />
             <ToolCard
-              glyph="⚠"
+              icon="alert-triangle"
               label="Report Ghost"
               sub="Cancelled class"
               onPress={handleQuickReportGhost}
@@ -1487,6 +1544,80 @@ const ProfessorDashboard = ({ navigation }) => {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ============================================================
+          LOGOUT CONFIRMATION MODAL
+          ============================================================ */}
+      <Modal
+        visible={logoutModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeLogoutModal}
+      >
+        <Pressable style={styles.logoutBackdrop} onPress={closeLogoutModal}>
+          <Pressable style={styles.logoutCard} onPress={() => {}}>
+            <View style={styles.logoutToneStrip}>
+              <View style={styles.logoutToneDot} />
+              <Text style={styles.logoutToneLabel}>SIGN OUT</Text>
+            </View>
+
+            <View style={styles.logoutBadgeWrap}>
+              <View style={styles.logoutBadge}>
+                <Feather name="log-out" size={28} color={T.crimson} />
+              </View>
+            </View>
+
+            <Text style={styles.logoutCardTitle}>Log out of UniNav?</Text>
+            <Text style={styles.logoutCardSubtitle}>
+              You'll be signed out of your faculty account and will need to
+              log in again to access your portal.
+            </Text>
+
+            {!!fullName && (
+              <View style={styles.logoutAccountPill}>
+                <View style={styles.logoutAccountAvatar}>
+                  <Text style={styles.logoutAccountAvatarText}>{initials}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.logoutAccountLabel}>SIGNED IN AS</Text>
+                  <Text style={styles.logoutAccountName} numberOfLines={1}>
+                    {fullName}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.logoutActions}>
+              <TouchableOpacity
+                style={styles.logoutCancelBtn}
+                onPress={closeLogoutModal}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.logoutCancelText}>Stay signed in</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.logoutConfirmBtn}
+                onPress={performLogout}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <View style={styles.logoutConfirmIconChip}>
+                      <Feather name="log-out" size={12} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.logoutConfirmText}>Log out</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -1526,7 +1657,7 @@ const Banner = ({ tone, title, body }) => {
   );
 };
 
-const ToolCard = ({ glyph, label, sub, onPress, accent, full }) => (
+const ToolCard = ({ icon, label, sub, onPress, accent, full }) => (
   <TouchableOpacity
     style={[
       styles.toolCard,
@@ -1536,13 +1667,28 @@ const ToolCard = ({ glyph, label, sub, onPress, accent, full }) => (
     onPress={onPress}
     activeOpacity={0.75}
   >
-    <Text style={[styles.toolGlyph, accent && styles.toolGlyphAccent]}>
-      {glyph}
-    </Text>
-    <Text style={[styles.toolLabel, accent && styles.toolLabelAccent]} numberOfLines={1}>
+    <View
+      style={[
+        styles.toolIconWrap,
+        accent && styles.toolIconWrapAccent,
+      ]}
+    >
+      <Feather
+        name={icon}
+        size={20}
+        color={accent ? '#FFFFFF' : T.crimson}
+      />
+    </View>
+    <Text
+      style={[styles.toolLabel, accent && styles.toolLabelAccent]}
+      numberOfLines={1}
+    >
       {label}
     </Text>
-    <Text style={[styles.toolSub, accent && styles.toolSubAccent]} numberOfLines={1}>
+    <Text
+      style={[styles.toolSub, accent && styles.toolSubAccent]}
+      numberOfLines={1}
+    >
       {sub}
     </Text>
   </TouchableOpacity>
@@ -1565,10 +1711,14 @@ const ProfessorDashboardSkeleton = () => (
               <Skeleton width={80} height={9} radius={3} />
               <Skeleton width={160} height={13} radius={3} />
             </View>
-            <Skeleton width={54} height={26} radius={6} />
+            <Skeleton width={98} height={34} radius={999} />
           </View>
           <Skeleton width={210} height={30} radius={6} style={{ marginTop: 22 }} />
         </View>
+      </View>
+
+      <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+        <Skeleton width="100%" height={78} radius={16} />
       </View>
 
       <View style={styles.statStrip}>
@@ -1664,19 +1814,40 @@ const styles = StyleSheet.create({
     opacity: 0.95,
     letterSpacing: -0.1,
   },
+
   logoutButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 5,
+    paddingRight: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: 'rgba(255,255,255,0.26)',
+    gap: 8,
+    minHeight: 34,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-  logoutText: {
+  logoutIconChip: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutLabel: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1.4,
   },
+
   headerGreeting: {
     fontSize: 34,
     fontWeight: '900',
@@ -1731,10 +1902,12 @@ const styles = StyleSheet.create({
   },
 
   // ==================== STAT STRIP ====================
+  // Now sits below the semester progress card — marginTop is
+  // positive (12) instead of -18.
   statStrip: {
     flexDirection: 'row',
     backgroundColor: T.surface,
-    marginTop: -18,
+    marginTop: 12,
     marginHorizontal: 16,
     borderRadius: 16,
     borderWidth: 1,
@@ -1932,7 +2105,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
-  // Hero buttons
   actionPrimary: {
     marginTop: 18,
     paddingVertical: 15,
@@ -2001,11 +2173,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
-  },
-  emptyHeroIconText: {
-    fontSize: 26,
-    color: T.green,
-    fontWeight: '900',
   },
   emptyHeroTitle: {
     fontSize: 17,
@@ -2230,14 +2397,17 @@ const styles = StyleSheet.create({
     backgroundColor: T.crimson,
     borderColor: T.crimson,
   },
-  toolGlyph: {
-    fontSize: 20,
-    color: T.crimson,
+  toolIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#FDECEC',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 14,
-    fontWeight: '900',
   },
-  toolGlyphAccent: {
-    color: '#FFFFFF',
+  toolIconWrapAccent: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   toolLabel: {
     fontSize: 14,
@@ -2258,7 +2428,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
   },
 
-  // ==================== MODAL ====================
+  // ==================== CLASS MODAL ====================
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -2512,6 +2682,174 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#B26A00',
     textDecorationLine: 'underline',
+  },
+
+  // ============================================================
+  // LOGOUT CONFIRMATION MODAL
+  // ============================================================
+  logoutBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(11,11,13,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  logoutCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: T.surface,
+    borderRadius: 22,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  logoutToneStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: T.redSoft,
+    gap: 8,
+    marginBottom: 20,
+  },
+  logoutToneDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: T.crimson,
+  },
+  logoutToneLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    color: T.crimson,
+  },
+  logoutBadgeWrap: {
+    marginBottom: 18,
+  },
+  logoutBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#FDECEC',
+    borderWidth: 2,
+    borderColor: '#F5C2C0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutCardTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  logoutCardSubtitle: {
+    fontSize: 13,
+    color: T.inkMuted,
+    textAlign: 'center',
+    lineHeight: 19,
+    fontWeight: '500',
+    paddingHorizontal: 6,
+    marginBottom: 20,
+  },
+  logoutAccountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
+    padding: 12,
+    gap: 12,
+    marginBottom: 22,
+  },
+  logoutAccountAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: T.crimson,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutAccountAvatarText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  logoutAccountLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
+    marginBottom: 3,
+  },
+  logoutAccountName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: T.ink,
+    letterSpacing: -0.1,
+  },
+  logoutActions: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    gap: 10,
+  },
+  logoutCancelBtn: {
+    flex: 1,
+    paddingVertical: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
+    backgroundColor: T.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutCancelText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: 0.2,
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingLeft: 5,
+    paddingRight: 14,
+    borderRadius: 12,
+    backgroundColor: T.crimson,
+    gap: 8,
+    minHeight: 48,
+    shadowColor: T.crimson,
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  logoutConfirmIconChip: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutConfirmText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
 });
 

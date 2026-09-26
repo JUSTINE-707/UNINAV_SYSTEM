@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   View,
   Text,
@@ -7,10 +7,10 @@ import {
   ActivityIndicator,
   Image,
   TouchableOpacity,
-  Dimensions,
   Keyboard,
   Modal,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native'
 import Svg, { Polyline, Circle } from 'react-native-svg'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -26,9 +26,6 @@ import { useRoute, useNavigation } from '@react-navigation/native'
 import { supabase } from '../services/supabase'
 import { findKShortestPaths } from '../utils/dijkstra'
 
-const SCREEN_WIDTH = Dimensions.get('window').width
-const SCREEN_HEIGHT = Dimensions.get('window').height
-
 const RENDER_MULTIPLIER = 1
 const DEFAULT_ZOOM = 1
 const DEFAULT_OFFSET_X = 0
@@ -36,9 +33,12 @@ const DEFAULT_OFFSET_Y = 0
 const DEFAULT_ROTATION = 0
 const MIN_SCALE = 1
 const MAX_SCALE = 5
-const MAP_AREA_HEIGHT = SCREEN_HEIGHT - 260
 const MAX_ROUTES = 3
 const ZOOM_STEP = 1.35
+
+// Fallback chrome height (header + search) — replaced by the
+// measured map area via onLayout on first render.
+const FALLBACK_CHROME_HEIGHT = 260
 
 // ============================================================
 // HAPTICS
@@ -62,6 +62,15 @@ const CampusMapScreen = ({
 }) => {
   const route = useRoute()
   const navigation = useNavigation()
+
+  // ---- Responsive screen sizing (updates on rotate / fold) ----
+  const { width: screenW, height: screenH } = useWindowDimensions()
+
+  // ---- Live map area size (measured via onLayout) ----
+  const [mapSize, setMapSize] = useState({
+    w: screenW,
+    h: screenH - FALLBACK_CHROME_HEIGHT,
+  })
 
   const [targetRoomName, setTargetRoomName] = useState(route.params?.roomName || null)
   const [activeScheduleId] = useState(route.params?.scheduleId || null)
@@ -110,7 +119,30 @@ const CampusMapScreen = ({
   const imgH = useSharedValue(1657)
   const fs = useSharedValue(1)
 
+  // Shared values for map area dimensions so worklets can read them live
+  const areaW = useSharedValue(screenW)
+  const areaH = useSharedValue(screenH - FALLBACK_CHROME_HEIGHT)
+
   const path = paths[pathIndex] || []
+
+  // ============================================================
+  // MAP AREA LAYOUT HANDLER
+  // ============================================================
+
+  const onMapAreaLayout = useCallback(
+    (e) => {
+      const { width, height } = e.nativeEvent.layout
+      if (width <= 0 || height <= 0) return
+
+      areaW.value = width
+      areaH.value = height
+
+      setMapSize((prev) =>
+        prev.w === width && prev.h === height ? prev : { w: width, h: height }
+      )
+    },
+    [areaW, areaH]
+  )
 
   // ============================================================
   // FLOOR LABEL HELPER
@@ -369,16 +401,26 @@ const CampusMapScreen = ({
     load()
   }, [targetRoomName, currentBuildingId, currentFloor, defaultStartLabel, refreshKey])
 
+  // ============================================================
+  // FIT SCALE — uses measured map area so the plan fits the
+  // actual viewport (not a screen-size guess).
+  // ============================================================
+
   const fitScale = useMemo(() => {
     const { width: iw, height: ih } = imageDimensions
-    const maxW = SCREEN_WIDTH - 32
-    const maxH = MAP_AREA_HEIGHT - 32
+    const maxW = Math.max(mapSize.w - 32, 100)
+    const maxH = Math.max(mapSize.h - 32, 100)
     return Math.min(maxW / iw, maxH / ih)
-  }, [imageDimensions])
+  }, [imageDimensions, mapSize.w, mapSize.h])
 
   useEffect(() => {
     fs.value = fitScale
-  }, [fitScale])
+  }, [fitScale, fs])
+
+  // ============================================================
+  // BOUNDS — read live dimensions from shared values so worklets
+  // always clamp against the current map area.
+  // ============================================================
 
   const getBounds = (s, r) => {
     'worklet'
@@ -389,8 +431,8 @@ const CampusMapScreen = ({
     const rotatedW = W * c + H * sn
     const rotatedH = W * sn + H * c
     return {
-      maxX: Math.max((rotatedW - SCREEN_WIDTH) / 2, 0),
-      maxY: Math.max((rotatedH - MAP_AREA_HEIGHT) / 2, 0),
+      maxX: Math.max((rotatedW - areaW.value) / 2, 0),
+      maxY: Math.max((rotatedH - areaH.value) / 2, 0),
     }
   }
 
@@ -438,18 +480,15 @@ const CampusMapScreen = ({
     if (refreshing) return
     hapticMedium()
 
-    // 1. Clear all route + pin state
     setPaths([])
     setPathIndex(0)
     setTargetRoomName(null)
     setPinnedLocation(null)
     setError(null)
 
-    // 2. Return to outdoor view
     setCurrentBuildingId(null)
     setCurrentFloor(0)
 
-    // 3. Reset pan / zoom / rotation
     scale.value = withTiming(DEFAULT_ZOOM, { duration: 250 })
     savedScale.value = DEFAULT_ZOOM
     rotation.value = withTiming(DEFAULT_ROTATION, { duration: 250 })
@@ -458,7 +497,6 @@ const CampusMapScreen = ({
     translateY.value = withTiming(DEFAULT_OFFSET_Y, { duration: 250 })
     setIsRotated(false)
 
-    // 4. Trigger data reload
     setRefreshing(true)
     setRefreshKey((k) => k + 1)
   }
@@ -495,7 +533,7 @@ const CampusMapScreen = ({
     })
   }
 
-  // AUTO-CENTER on pin
+  // AUTO-CENTER on pin — reads live area dimensions
   useEffect(() => {
     const pinMatchesView =
       pinnedLocation &&
@@ -507,15 +545,17 @@ const CampusMapScreen = ({
         const w = imgW.value
         const h = imgH.value
         const fit = fs.value
-        if (!w || !h || !fit) return
+        const viewW = areaW.value
+        const viewH = areaH.value
+        if (!w || !h || !fit || !viewW || !viewH) return
 
         let offsetX = -(pinnedLocation.coord_x - w / 2) * fit
         let offsetY = -(pinnedLocation.coord_y - h / 2) * fit
 
         const W = w * fit
         const H = h * fit
-        const maxX = Math.max((W - SCREEN_WIDTH) / 2, 0)
-        const maxY = Math.max((H - MAP_AREA_HEIGHT) / 2, 0)
+        const maxX = Math.max((W - viewW) / 2, 0)
+        const maxY = Math.max((H - viewH) / 2, 0)
 
         offsetX = Math.min(Math.max(offsetX, -maxX), maxX)
         offsetY = Math.min(Math.max(offsetY, -maxY), maxY)
@@ -533,7 +573,14 @@ const CampusMapScreen = ({
     } else {
       resetView()
     }
-  }, [currentFloor, currentBuildingId, pinnedLocation, imageDimensions])
+  }, [
+    currentFloor,
+    currentBuildingId,
+    pinnedLocation,
+    imageDimensions,
+    mapSize.w,
+    mapSize.h,
+  ])
 
   // ============================================================
   // GESTURES
@@ -761,10 +808,6 @@ const CampusMapScreen = ({
 
   // ============================================================
   // FLOOR SWITCHER VISIBILITY
-  //
-  // Only shown during an ACTIVE multi-floor route. When browsing
-  // (no route), the switcher is hidden so we don't show stand-alone
-  // floor chips like "HEB 1F" / "HEB 2F".
   // ============================================================
 
   const floorsToShow = routeFloors
@@ -772,7 +815,7 @@ const CampusMapScreen = ({
   const isRoutingSwitcher = true
 
   // ============================================================
-  // POLYLINE POINTS STRING (reused for layered strokes)
+  // POLYLINE POINTS STRING
   // ============================================================
   const currentRoutePoints = currentFloorPath
     .map(
@@ -856,7 +899,10 @@ const CampusMapScreen = ({
 
           {searchOpen && searchResults.length > 0 && (
             <View style={styles.searchResultsAbsolute}>
-              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 300 }}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                style={styles.searchResultsScroll}
+              >
                 {searchResults.map((item) => (
                   <TouchableOpacity
                     key={`${item.type}-${item.id}`}
@@ -933,39 +979,45 @@ const CampusMapScreen = ({
         </View>
       )}
 
-      {/* MAP AREA */}
-      <View style={styles.mapArea}>
+      {/* MAP AREA — measured for responsive bounds/centering */}
+      <View style={styles.mapArea} onLayout={onMapAreaLayout}>
         {/* FLOOR SWITCHER — only visible during multi-floor route */}
         {showSwitcher && !debugOpen && (
-          <View style={styles.floorSwitcher}>
-            {floorsToShow.map((f, idx) => {
-              const isActive =
-                (currentBuildingId || null) === f.building_id &&
-                currentFloor === f.floor_level
-              return (
-                <View key={f.key} style={styles.floorChipGroup}>
-                  <TouchableOpacity
-                    style={[styles.floorBtn, isActive && styles.floorBtnActive]}
-                    onPress={() => goToFloor(f)}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[styles.floorBtnText, isActive && styles.floorBtnTextActive]}
-                      numberOfLines={1}
+          <View style={styles.floorSwitcher} pointerEvents="box-none">
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.floorSwitcherContent}
+            >
+              {floorsToShow.map((f, idx) => {
+                const isActive =
+                  (currentBuildingId || null) === f.building_id &&
+                  currentFloor === f.floor_level
+                return (
+                  <View key={f.key} style={styles.floorChipGroup}>
+                    <TouchableOpacity
+                      style={[styles.floorBtn, isActive && styles.floorBtnActive]}
+                      onPress={() => goToFloor(f)}
+                      activeOpacity={0.7}
                     >
-                      {getFloorLabel(f.building_id, f.floor_level)}
-                    </Text>
-                  </TouchableOpacity>
-                  {isRoutingSwitcher && idx < floorsToShow.length - 1 && (
-                    <Text style={styles.floorArrow}>›</Text>
-                  )}
-                </View>
-              )
-            })}
+                      <Text
+                        style={[styles.floorBtnText, isActive && styles.floorBtnTextActive]}
+                        numberOfLines={1}
+                      >
+                        {getFloorLabel(f.building_id, f.floor_level)}
+                      </Text>
+                    </TouchableOpacity>
+                    {isRoutingSwitcher && idx < floorsToShow.length - 1 && (
+                      <Text style={styles.floorArrow}>›</Text>
+                    )}
+                  </View>
+                )
+              })}
+            </ScrollView>
           </View>
         )}
 
-        {/* REFRESH FAB — clears route + reloads */}
+        {/* REFRESH FAB */}
         <TouchableOpacity
           onPress={handleRefresh}
           style={styles.refreshFab}
@@ -1074,7 +1126,7 @@ const CampusMapScreen = ({
                   </>
                 )}
 
-              {/* ALTERNATE ROUTES (faint) */}
+              {/* ALTERNATE ROUTES */}
               {hasRoute &&
                 paths.map((p, idx) => {
                   if (idx === pathIndex) return null
@@ -1314,7 +1366,7 @@ const CampusMapScreen = ({
               />
               <Text style={styles.legendLabel}>Pinned</Text>
             </View>
-            <Text style={styles.routeSummary}>
+            <Text style={styles.routeSummary} numberOfLines={2}>
               {path.length} steps{' '}
               {paths.length > 1 ? ` · Route ${pathIndex + 1} of ${paths.length}` : ''}{' '}
               {' · '}
@@ -1323,7 +1375,7 @@ const CampusMapScreen = ({
             </Text>
           </>
         ) : (
-          <Text style={styles.browseHint}>
+          <Text style={styles.browseHint} numberOfLines={2}>
             {error
               ? 'No route available'
               : debugOpen
@@ -1333,7 +1385,7 @@ const CampusMapScreen = ({
               : 'Tap a class in Schedule, or search above'}
           </Text>
         )}
-        <Text style={styles.hint}>
+        <Text style={styles.hint} numberOfLines={2}>
           Pinch · Drag · Twist · Double-tap to reset · Long-press to pin
         </Text>
       </View>
@@ -1346,7 +1398,7 @@ const CampusMapScreen = ({
         onRequestClose={() => setPickingFor(null)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { maxHeight: screenH * 0.8 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 Pick {pickingFor === 'start' ? 'start' : 'end'} node
@@ -1373,8 +1425,10 @@ const CampusMapScreen = ({
                   style={styles.modalItem}
                   onPress={() => handlePickNode(n)}
                 >
-                  <Text style={styles.modalItemLabel}>{n.label}</Text>
-                  <Text style={styles.modalItemCoord}>
+                  <Text style={styles.modalItemLabel} numberOfLines={1}>
+                    {n.label}
+                  </Text>
+                  <Text style={styles.modalItemCoord} numberOfLines={1}>
                     {n.coord_x},{n.coord_y}
                   </Text>
                 </TouchableOpacity>
@@ -1395,7 +1449,7 @@ const CampusMapScreen = ({
         onRequestClose={() => setRouteModalOpen(false)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.routesCard}>
+          <View style={[styles.routesCard, { maxHeight: screenH * 0.75 }]}>
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>Choose a route</Text>
@@ -1509,6 +1563,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F7',
   },
   loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1533,6 +1588,7 @@ const styles = StyleSheet.create({
   headerReset: { width: 70, alignItems: 'flex-end' },
   headerResetText: { color: '#8B0000', fontWeight: '600', fontSize: 14 },
   headerResetTextActive: { color: '#059669' },
+
   debugPanel: {
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
@@ -1586,6 +1642,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   debugClearText: { color: '#1A1A1A', fontWeight: '600', fontSize: 14 },
+
   searchWrap: {
     paddingHorizontal: 16,
     paddingTop: 12,
@@ -1622,6 +1679,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     zIndex: 1000,
   },
+  searchResultsScroll: { maxHeight: 300 },
   searchResultItem: {
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -1632,6 +1690,7 @@ const styles = StyleSheet.create({
   searchResultIcon: { fontSize: 18, width: 24, textAlign: 'center' },
   searchResultText: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
   searchResultSubtext: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+
   mapArea: {
     flex: 1,
     alignItems: 'center',
@@ -1643,13 +1702,18 @@ const styles = StyleSheet.create({
   floorSwitcher: {
     position: 'absolute',
     top: 10,
-    flexDirection: 'row',
+    left: 0,
+    right: 0,
+    zIndex: 10,
     alignItems: 'center',
+  },
+  floorSwitcherContent: {
     backgroundColor: 'rgba(255,255,255,0.97)',
     borderRadius: 20,
     paddingVertical: 4,
     paddingHorizontal: 6,
-    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOpacity: 0.12,
     shadowRadius: 6,
@@ -1657,7 +1721,12 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   floorChipGroup: { flexDirection: 'row', alignItems: 'center' },
-  floorBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16 },
+  floorBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    maxWidth: 140,
+  },
   floorBtnActive: { backgroundColor: '#8B0000' },
   floorBtnText: {
     fontSize: 12,
@@ -1717,7 +1786,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 },
     elevation: 6,
   },
-  transitionBannerLeft: { flexDirection: 'column' },
+  transitionBannerLeft: { flexDirection: 'column', flex: 1 },
   transitionBannerLabel: {
     color: 'rgba(255,255,255,0.85)',
     fontSize: 10,
@@ -1736,6 +1805,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '900',
+    marginLeft: 10,
   },
 
   clearPinFab: {
@@ -1835,6 +1905,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
     zIndex: 20,
+    maxWidth: '80%',
   },
   directionsFabText: {
     color: '#FFFFFF',
@@ -1875,11 +1946,13 @@ const styles = StyleSheet.create({
   scanQRFab: {
     position: 'absolute',
     left: 20,
+    right: 20,
     bottom: 20,
     backgroundColor: '#059669',
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: 24,
+    alignItems: 'center',
     shadowColor: '#059669',
     shadowOpacity: 0.35,
     shadowRadius: 12,
@@ -1893,6 +1966,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.3,
   },
+
   footer: {
     paddingHorizontal: 20,
     paddingVertical: 12,
@@ -1900,12 +1974,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#ECECEC',
   },
-  legendRow: { flexDirection: 'row', alignItems: 'center' },
+  legendRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 6 },
   legendLabel: { fontSize: 13, color: '#4B5563', fontWeight: '500' },
   routeSummary: { marginTop: 6, fontSize: 12, color: '#9CA3AF' },
   browseHint: { fontSize: 13, color: '#6B7280', fontWeight: '500' },
   hint: { marginTop: 6, fontSize: 11, color: '#C7C7C7', fontStyle: 'italic' },
+
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -1915,7 +1990,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '80%',
     paddingBottom: 30,
   },
   modalHeader: {
@@ -1949,15 +2023,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
+    gap: 12,
   },
-  modalItemLabel: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
+  modalItemLabel: { fontSize: 14, fontWeight: '600', color: '#1A1A1A', flex: 1 },
   modalItemCoord: { fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' },
   modalEmpty: { textAlign: 'center', paddingVertical: 30, color: '#9CA3AF', fontSize: 13 },
+
   routesCard: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '70%',
     paddingBottom: 20,
   },
   routesSubtitle: { fontSize: 13, color: '#6B7280', marginTop: 2 },

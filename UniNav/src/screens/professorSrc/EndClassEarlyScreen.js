@@ -16,17 +16,44 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 
+// ============================================================
+// DESIGN TOKENS
+// ============================================================
+
+const T = {
+  crimson: '#8B0000',
+  crimsonLight: '#A61B1B',
+  ink: '#0B0B0D',
+  inkSoft: '#3F3F46',
+  inkMuted: '#71717A',
+  inkFaint: '#A1A1AA',
+  hair: '#E7E7E9',
+  hair2: '#F1F1F3',
+  canvas: '#F2F2F4',
+  surface: '#FFFFFF',
+  green: '#0F7A4A',
+  greenSoft: '#ECFDF5',
+  amber: '#B45309',
+  amberSoft: '#FEF3C7',
+  red: '#9F1239',
+  redSoft: '#FCE7F3',
+  blue: '#1D4ED8',
+  blueSoft: '#DBEAFE',
+  slate: '#94A3B8',
+  slateSoft: '#F1F5F9',
+};
+
 const COLORS = {
-  primary: '#8B0000',
+  primary: T.crimson,
   white: '#FFFFFF',
-  black: '#1A1A1A',
-  gray: '#9A9A9E',
-  lightGray: '#E8E5DF',
-  background: '#F5F5F7',
-  success: '#059669',
-  warning: '#C77700',
-  error: '#B00020',
-  online: '#1E88E5',
+  black: T.ink,
+  gray: T.inkMuted,
+  lightGray: T.hair,
+  background: T.canvas,
+  success: T.green,
+  warning: T.amber,
+  error: T.red,
+  online: T.blue,
 };
 
 // Reasons the professor can pick. Codes must match END_REASONS
@@ -130,7 +157,7 @@ const EndClassEarlyScreen = () => {
           end_notes: notes.trim() || null,
         })
         .eq('id', sessionId)
-        .eq('faculty_id', user.id); // RLS-safe guard
+        .eq('faculty_id', user.id);
 
       if (error) throw error;
 
@@ -153,62 +180,97 @@ const EndClassEarlyScreen = () => {
   if (submitted) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+        <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
-        <ScrollView contentContainerStyle={styles.successContent}>
-          <View style={styles.successCard}>
-            <View style={styles.successIconCircle}>
-              <Text style={styles.successIcon}>✓</Text>
+        <View style={styles.header}>
+          <View style={styles.headerDecor} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerTopRow}>
+              <View style={{ width: 34 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.headerEyebrow}>FACULTY</Text>
+                <Text style={styles.headerTitle}>End Class Early</Text>
+              </View>
+              <View style={{ width: 34 }} />
+            </View>
+          </View>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.successContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.successToneStrip}>
+            <View style={styles.successToneDot} />
+            <Text style={styles.successToneLabel}>CLASS ENDED</Text>
+          </View>
+
+          <View style={styles.successBadge}>
+            <Text style={styles.successBadgeGlyph}>✓</Text>
+          </View>
+
+          <Text style={styles.successTitle}>Class ended early</Text>
+          <Text style={styles.successSubtitle}>
+            The room is now available. Your Program Chair will see the reason
+            you provided.
+          </Text>
+
+          <View style={styles.summaryBox}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>CLASS</Text>
+              <Text style={styles.summaryValue} numberOfLines={1}>
+                {subjectCode || '—'}
+                {section ? ` · ${section}` : ''}
+              </Text>
             </View>
 
-            <Text style={styles.successTitle}>Class Ended Early</Text>
-            <Text style={styles.successSubtitle}>
-              The room is now available. Your Program Chair will see the
-              reason you provided.
-            </Text>
+            <View style={styles.summaryDivider} />
 
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryBoxLabel}>CLASS</Text>
-              <Text style={styles.summaryBoxValue}>
-                {subjectCode || '—'} · {section || '—'}
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>ROOM</Text>
+              <Text style={styles.summaryValue} numberOfLines={1}>
+                {roomName || '—'}
               </Text>
+            </View>
 
-              <Text style={[styles.summaryBoxLabel, { marginTop: 12 }]}>
-                ROOM
-              </Text>
-              <Text style={styles.summaryBoxValue}>{roomName || '—'}</Text>
+            <View style={styles.summaryDivider} />
 
-              <Text style={[styles.summaryBoxLabel, { marginTop: 12 }]}>
-                ENDED AT
-              </Text>
-              <Text style={styles.summaryBoxValue}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>ENDED AT</Text>
+              <Text style={styles.summaryValue}>
                 {formatClock(new Date())}
               </Text>
-
-              <Text style={[styles.summaryBoxLabel, { marginTop: 12 }]}>
-                REASON
-              </Text>
-              <Text style={styles.summaryBoxValue}>
-                {REASONS.find((r) => r.code === reason)?.label || reason}
-              </Text>
-
-              {!!notes.trim() && (
-                <>
-                  <Text style={[styles.summaryBoxLabel, { marginTop: 12 }]}>
-                    NOTES
-                  </Text>
-                  <Text style={styles.summaryBoxValue}>{notes.trim()}</Text>
-                </>
-              )}
             </View>
 
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => navigation.navigate('ProfessorDashboard')}
-            >
-              <Text style={styles.primaryButtonText}>Back to Dashboard</Text>
-            </TouchableOpacity>
+            <View style={styles.summaryDivider} />
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>REASON</Text>
+              <Text style={styles.summaryValue} numberOfLines={2}>
+                {REASONS.find((r) => r.code === reason)?.label || reason}
+              </Text>
+            </View>
+
+            {!!notes.trim() && (
+              <>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>NOTES</Text>
+                  <Text style={styles.summaryValue} numberOfLines={4}>
+                    {notes.trim()}
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
+
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => navigation.navigate('ProfessorDashboard')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.primaryButtonText}>Back to Dashboard</Text>
+          </TouchableOpacity>
         </ScrollView>
       </View>
     );
@@ -218,28 +280,44 @@ const EndClassEarlyScreen = () => {
   // FORM
   // ============================================================
 
+  const submitDisabled = submitting || !reason;
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+        <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
+        {/* ==================== HEADER ==================== */}
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-          >
-            <Text style={styles.backText}>‹ Back</Text>
-          </TouchableOpacity>
+          <View style={styles.headerDecor} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerTopRow}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              >
+                <Text style={styles.backText}>‹</Text>
+              </TouchableOpacity>
 
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={styles.headerEyebrow}>FACULTY</Text>
-            <Text style={styles.headerTitle}>End Class Early</Text>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={styles.headerEyebrow}>FACULTY</Text>
+                <Text style={styles.headerTitle}>End Class Early</Text>
+              </View>
+
+              <View style={{ width: 34 }} />
+            </View>
+
+            <View style={styles.endedPill}>
+              <View style={styles.endedPillDot} />
+              <Text style={styles.endedPillText} numberOfLines={1}>
+                ENDING NOW · {formatClock(new Date())}
+              </Text>
+            </View>
           </View>
-
-          <View style={{ width: 60 }} />
         </View>
 
         <ScrollView
@@ -247,9 +325,14 @@ const EndClassEarlyScreen = () => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* CLASS INFO */}
+          {/* ==================== CLASS INFO ==================== */}
           <View style={styles.classCard}>
-            <Text style={styles.classCardEyebrow}>ENDING NOW</Text>
+            <View style={styles.classEyebrowRow}>
+              <View style={styles.classEyebrowChip}>
+                <Text style={styles.classEyebrowChipText}>ENDING NOW</Text>
+              </View>
+            </View>
+
             <Text style={styles.classSubject}>
               {subjectCode || 'Unknown Subject'}
             </Text>
@@ -257,16 +340,22 @@ const EndClassEarlyScreen = () => {
             <View style={styles.classMetaRow}>
               <View style={styles.metaItem}>
                 <Text style={styles.metaLabel}>SECTION</Text>
-                <Text style={styles.metaValue}>{section || '—'}</Text>
+                <Text style={styles.metaValue} numberOfLines={1}>
+                  {section || '—'}
+                </Text>
               </View>
+
               <View style={styles.metaDivider} />
+
               <View style={styles.metaItem}>
                 <Text style={styles.metaLabel}>ROOM</Text>
                 <Text style={styles.metaValue} numberOfLines={1}>
                   {roomName || '—'}
                 </Text>
               </View>
+
               <View style={styles.metaDivider} />
+
               <View style={styles.metaItem}>
                 <Text style={styles.metaLabel}>ENDED AT</Text>
                 <Text style={styles.metaValue} numberOfLines={1}>
@@ -283,24 +372,33 @@ const EndClassEarlyScreen = () => {
             )}
           </View>
 
-          {/* INFO BANNER */}
+          {/* ==================== INFO BANNER ==================== */}
           <View style={styles.infoBanner}>
-            <Text style={styles.infoBannerIcon}>🔓</Text>
+            <View style={styles.infoBannerTag}>
+              <Text style={styles.infoBannerTagText}>NOTE</Text>
+            </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.infoBannerTitle}>
-                What this does
-              </Text>
+              <Text style={styles.infoBannerTitle}>What this does</Text>
               <Text style={styles.infoBannerText}>
                 The room frees up from this moment forward. Your Program Chair
-                will see the reason. This is <Text style={{ fontWeight: '900' }}>not</Text> a
-                ghost report — the class happened, it just ended early.
+                will see the reason. This is{' '}
+                <Text style={{ fontWeight: '900' }}>not</Text> a ghost report
+                — the class happened, it just ended early.
               </Text>
             </View>
           </View>
 
-          {/* REASON */}
-          <Text style={styles.stepLabel}>STEP 1 OF 2</Text>
-          <Text style={styles.sectionTitle}>Why is the class ending early?</Text>
+          {/* ==================== STEP 1 ==================== */}
+          <View style={styles.stepHeader}>
+            <View style={styles.stepCounter}>
+              <Text style={styles.stepCounterText}>1 / 2</Text>
+            </View>
+            <Text style={styles.stepEyebrow}>REASON</Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>
+            Why is the class ending early?
+          </Text>
           <Text style={styles.sectionSubtitle}>
             Select the option that best describes the situation.
           </Text>
@@ -316,7 +414,7 @@ const EndClassEarlyScreen = () => {
                     isSelected && styles.reasonCardSelected,
                   ]}
                   onPress={() => setReason(item.code)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
                   <View
                     style={[
@@ -324,14 +422,7 @@ const EndClassEarlyScreen = () => {
                       isSelected && styles.reasonIconBoxSelected,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.reasonIconText,
-                        isSelected && styles.reasonIconTextSelected,
-                      ]}
-                    >
-                      {item.icon}
-                    </Text>
+                    <Text style={styles.reasonIconText}>{item.icon}</Text>
                   </View>
 
                   <View style={{ flex: 1 }}>
@@ -359,13 +450,21 @@ const EndClassEarlyScreen = () => {
             })}
           </View>
 
-          {/* NOTES */}
-          <Text style={styles.stepLabel}>STEP 2 OF 2</Text>
-          <Text style={styles.sectionTitle}>
-            Additional Notes{' '}
-            <Text style={styles.optionalText}>
-              ({reason === 'other' ? 'required' : 'optional'})
+          {/* ==================== STEP 2 ==================== */}
+          <View style={styles.stepHeader}>
+            <View style={styles.stepCounter}>
+              <Text style={styles.stepCounterText}>2 / 2</Text>
+            </View>
+            <Text style={styles.stepEyebrow}>
+              {reason === 'other' ? 'REQUIRED' : 'OPTIONAL'}
             </Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>Additional notes</Text>
+          <Text style={styles.sectionSubtitle}>
+            {reason === 'other'
+              ? 'Please describe why the class ended early.'
+              : 'Any context that helps your chair understand the situation.'}
           </Text>
 
           <TextInput
@@ -377,7 +476,7 @@ const EndClassEarlyScreen = () => {
                 ? 'Please describe why the class ended early…'
                 : 'E.g., "Called into a dean\'s meeting" or "Sudden migraine"…'
             }
-            placeholderTextColor={COLORS.gray}
+            placeholderTextColor={T.inkFaint}
             value={notes}
             onChangeText={setNotes}
             textAlignVertical="top"
@@ -385,18 +484,18 @@ const EndClassEarlyScreen = () => {
           />
           <Text style={styles.charCount}>{notes.length}/500</Text>
 
-          {/* SUBMIT */}
+          {/* ==================== SUBMIT ==================== */}
           <TouchableOpacity
             style={[
               styles.submitButton,
-              (submitting || !reason) && styles.submitButtonDisabled,
+              submitDisabled && styles.submitButtonDisabled,
             ]}
             onPress={handleSubmit}
-            disabled={submitting || !reason}
+            disabled={submitDisabled}
             activeOpacity={0.85}
           >
             {submitting ? (
-              <ActivityIndicator color={COLORS.white} />
+              <ActivityIndicator color={T.surface} />
             ) : (
               <Text style={styles.submitButtonText}>End class now</Text>
             )}
@@ -415,181 +514,292 @@ const EndClassEarlyScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1, backgroundColor: T.canvas },
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: T.canvas,
   },
 
-  // HEADER
+  // ==================== HEADER ====================
   header: {
+    backgroundColor: T.crimson,
+    paddingTop: 54,
+    paddingBottom: 22,
+    overflow: 'hidden',
+  },
+  headerDecor: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: T.crimsonLight,
+    opacity: 0.4,
+  },
+  headerContent: {
+    paddingHorizontal: 20,
+  },
+  headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 54,
-    paddingBottom: 16,
-    backgroundColor: COLORS.primary,
   },
-  backButton: { width: 60 },
-  backText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  headerEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+  backButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backText: {
     color: '#FFFFFF',
-    opacity: 0.7,
-    marginBottom: 2,
+    fontSize: 22,
+    fontWeight: '600',
+    lineHeight: 22,
+    marginTop: -4,
   },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
-
-  scrollContent: { padding: 16 },
-
-  // CLASS CARD
-  classCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+  headerEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#FFFFFF',
+    opacity: 0.65,
+    marginBottom: 4,
   },
-  classCardEyebrow: {
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  endedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    gap: 7,
+  },
+  endedPillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFD700',
+  },
+  endedPillText: {
     fontSize: 10,
+    color: '#FFFFFF',
     fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+
+  scrollContent: { padding: 20, paddingBottom: 20 },
+
+  // ==================== CLASS CARD ====================
+  classCard: {
+    backgroundColor: T.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: T.hair,
+    padding: 18,
+    marginBottom: 18,
+  },
+  classEyebrowRow: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  classEyebrowChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
+    backgroundColor: T.amberSoft,
+  },
+  classEyebrowChipText: {
+    fontSize: 9,
+    fontWeight: '900',
     letterSpacing: 1.2,
-    color: COLORS.gray,
-    marginBottom: 6,
+    color: T.amber,
   },
   classSubject: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '900',
-    color: COLORS.primary,
+    color: T.crimson,
+    letterSpacing: -0.5,
   },
   classMetaRow: {
     flexDirection: 'row',
-    backgroundColor: '#F7F5F2',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 10,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair2,
+    paddingVertical: 12,
+    marginTop: 14,
   },
-  metaItem: { flex: 1, alignItems: 'center' },
-  metaDivider: { width: 1, backgroundColor: '#E5E5E7' },
+  metaItem: { flex: 1, alignItems: 'center', paddingHorizontal: 6 },
+  metaDivider: {
+    width: 1,
+    backgroundColor: T.hair,
+    marginVertical: 4,
+  },
   metaLabel: {
     fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    color: COLORS.gray,
-    marginBottom: 2,
-  },
-  metaValue: { fontSize: 12, fontWeight: '700', color: COLORS.black },
-  classOriginalTime: {
-    fontSize: 11,
-    color: COLORS.gray,
-    fontStyle: 'italic',
-    marginTop: 10,
-    textAlign: 'center',
-  },
-
-  // INFO BANNER
-  infoBanner: {
-    flexDirection: 'row',
-    backgroundColor: '#EFF6FF',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.online,
-    gap: 12,
-  },
-  infoBannerIcon: { fontSize: 20 },
-  infoBannerTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1E40AF',
-    marginBottom: 3,
-  },
-  infoBannerText: {
-    fontSize: 12,
-    color: '#1E40AF',
-    lineHeight: 17,
-    opacity: 0.9,
-  },
-
-  // STEPS
-  stepLabel: {
-    fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 1.5,
-    color: COLORS.primary,
+    letterSpacing: 1.2,
+    color: T.inkFaint,
     marginBottom: 4,
   },
+  metaValue: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.1,
+    fontVariant: ['tabular-nums'],
+  },
+  classOriginalTime: {
+    fontSize: 11,
+    color: T.inkMuted,
+    fontStyle: 'italic',
+    marginTop: 12,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+
+  // ==================== INFO BANNER ====================
+  infoBanner: {
+    flexDirection: 'row',
+    backgroundColor: T.blueSoft,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 22,
+    borderLeftWidth: 4,
+    borderLeftColor: T.blue,
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  infoBannerTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+    backgroundColor: T.blue,
+    marginTop: 1,
+  },
+  infoBannerTagText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#FFFFFF',
+  },
+  infoBannerTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#1E3A8A',
+    marginBottom: 4,
+    letterSpacing: -0.1,
+  },
+  infoBannerText: {
+    fontSize: 11,
+    color: '#1E3A8A',
+    lineHeight: 16,
+    opacity: 0.9,
+    fontWeight: '500',
+  },
+
+  // ==================== STEP HEADER ====================
+  stepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+    gap: 10,
+  },
+  stepCounter: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
+    backgroundColor: T.crimson,
+  },
+  stepCounterText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#FFFFFF',
+  },
+  stepEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.inkFaint,
+  },
+
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.black,
+    fontSize: 17,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.3,
     marginBottom: 4,
   },
   sectionSubtitle: {
     fontSize: 12,
-    color: COLORS.gray,
-    marginBottom: 12,
-  },
-  optionalText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: COLORS.gray,
-    fontStyle: 'italic',
+    color: T.inkMuted,
+    marginBottom: 14,
+    lineHeight: 17,
+    fontWeight: '500',
   },
 
-  // REASON LIST
-  reasonList: { gap: 10, marginBottom: 24 },
+  // ==================== REASON LIST ====================
+  reasonList: { gap: 8, marginBottom: 26 },
   reasonCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.surface,
     borderRadius: 14,
     padding: 14,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: T.hair,
     gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
   },
   reasonCardSelected: {
-    borderColor: COLORS.primary,
+    borderColor: T.crimson,
     backgroundColor: '#FFF8F8',
   },
   reasonIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: '#F5F5F7',
+    width: 42,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: T.hair2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  reasonIconBoxSelected: { backgroundColor: '#FFE5E5' },
-  reasonIconText: { fontSize: 18, color: COLORS.gray },
-  reasonIconTextSelected: { color: COLORS.primary },
-  reasonLabel: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.black,
-    marginBottom: 2,
+  reasonIconBoxSelected: {
+    backgroundColor: '#FFE5E5',
   },
-  reasonLabelSelected: { color: COLORS.primary },
+  reasonIconText: {
+    fontSize: 18,
+  },
+  reasonLabel: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: T.ink,
+    marginBottom: 2,
+    letterSpacing: -0.1,
+  },
+  reasonLabelSelected: { color: T.crimson },
   reasonHint: {
     fontSize: 11,
-    color: COLORS.gray,
+    color: T.inkMuted,
     lineHeight: 15,
+    fontWeight: '500',
   },
+
+  // ==================== RADIO ====================
   radioOuter: {
     width: 22,
     height: 22,
@@ -599,142 +809,174 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioOuterSelected: { borderColor: COLORS.primary },
+  radioOuterSelected: { borderColor: T.crimson },
   radioInner: {
-    width: 12,
-    height: 12,
+    width: 11,
+    height: 11,
     borderRadius: 6,
-    backgroundColor: COLORS.primary,
+    backgroundColor: T.crimson,
   },
 
-  // NOTES
+  // ==================== NOTES ====================
   notesInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.surface,
     borderRadius: 14,
     padding: 14,
     fontSize: 13,
-    color: COLORS.black,
+    color: T.ink,
     minHeight: 120,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    marginTop: 8,
+    borderWidth: 1.5,
+    borderColor: T.hair,
+    lineHeight: 19,
   },
   charCount: {
     fontSize: 10,
-    color: COLORS.gray,
+    color: T.inkFaint,
     textAlign: 'right',
-    marginTop: 4,
+    marginTop: 6,
     marginBottom: 24,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
 
-  // SUBMIT
+  // ==================== SUBMIT ====================
   submitButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: T.crimson,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 16,
-    shadowColor: COLORS.primary,
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
   },
   submitButtonDisabled: {
     backgroundColor: '#C4C4C6',
-    shadowOpacity: 0,
-    elevation: 0,
   },
   submitButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
   footerNote: {
     fontSize: 11,
-    color: COLORS.gray,
+    color: T.inkMuted,
     textAlign: 'center',
     lineHeight: 16,
     fontStyle: 'italic',
     paddingHorizontal: 12,
+    fontWeight: '500',
   },
 
-  // SUCCESS
+  // ==================== SUCCESS ====================
   successContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
     padding: 24,
-  },
-  successCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 32,
+    paddingTop: 40,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
   },
-  successIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#EAF6EC',
+  successToneStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    marginBottom: 24,
+    gap: 8,
+  },
+  successToneDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: T.green,
+  },
+  successToneLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    color: T.green,
+  },
+  successBadge: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: T.greenSoft,
+    borderWidth: 2,
+    borderColor: '#BFE3CF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginBottom: 22,
   },
-  successIcon: {
-    fontSize: 42,
-    color: COLORS.success,
+  successBadgeGlyph: {
+    fontSize: 38,
     fontWeight: '900',
+    color: T.green,
+    lineHeight: 40,
   },
   successTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '900',
-    color: COLORS.black,
+    color: T.ink,
+    letterSpacing: -0.4,
     marginBottom: 8,
+    textAlign: 'center',
   },
   successSubtitle: {
     fontSize: 13,
-    color: COLORS.gray,
+    color: T.inkMuted,
     textAlign: 'center',
     lineHeight: 19,
-    marginBottom: 20,
-    paddingHorizontal: 10,
+    marginBottom: 22,
+    paddingHorizontal: 12,
+    fontWeight: '500',
   },
   summaryBox: {
     width: '100%',
-    backgroundColor: '#F7F5F2',
-    borderRadius: 12,
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
     padding: 16,
     marginBottom: 24,
   },
-  summaryBoxLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: COLORS.gray,
-    marginBottom: 2,
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    gap: 12,
   },
-  summaryBoxValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.black,
+  summaryDivider: {
+    height: 1,
+    backgroundColor: T.hair2,
+  },
+  summaryLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    color: T.inkFaint,
+    marginTop: 2,
+  },
+  summaryValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: T.ink,
+    textAlign: 'right',
+    flex: 1,
+    letterSpacing: -0.1,
   },
   primaryButton: {
     width: '100%',
-    backgroundColor: COLORS.primary,
-    paddingVertical: 15,
+    backgroundColor: T.crimson,
     borderRadius: 12,
+    paddingVertical: 15,
     alignItems: 'center',
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 });
 

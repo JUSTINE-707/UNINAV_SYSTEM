@@ -22,6 +22,66 @@ import {
 } from '../../utils/roomStatus';
 
 // ============================================================
+// DESIGN TOKENS
+// ============================================================
+
+const T = {
+  crimson: '#8B0000',
+  crimsonLight: '#A61B1B',
+  ink: '#0B0B0D',
+  inkSoft: '#3F3F46',
+  inkMuted: '#71717A',
+  inkFaint: '#A1A1AA',
+  hair: '#E7E7E9',
+  hair2: '#F1F1F3',
+  canvas: '#F2F2F4',
+  surface: '#FFFFFF',
+  green: '#0F7A4A',
+  greenSoft: '#ECFDF5',
+  amber: '#B45309',
+  amberSoft: '#FEF3C7',
+  red: '#9F1239',
+  redSoft: '#FCE7F3',
+  blue: '#1D4ED8',
+  blueSoft: '#DBEAFE',
+  slate: '#94A3B8',
+  slateSoft: '#F1F5F9',
+};
+
+// ------------------------------------------------------------
+// State → token mapping (mirrors utils/roomStatus colors)
+// ------------------------------------------------------------
+const STATE_TONE = {
+  occupied: { color: T.red, bg: T.redSoft },
+  vacant: { color: T.amber, bg: T.amberSoft },
+  reserved: { color: T.blue, bg: T.blueSoft },
+  available: { color: T.green, bg: T.greenSoft },
+  released: { color: '#C77700', bg: T.amberSoft },
+  closed: { color: T.slate, bg: T.slateSoft },
+  ended: { color: T.slate, bg: T.slateSoft },
+};
+
+const stateTone = (state) =>
+  STATE_TONE[state] || { color: T.slate, bg: T.slateSoft };
+
+// ------------------------------------------------------------
+// Per-schedule live status tone (used inside the room modal)
+// ------------------------------------------------------------
+const SCHEDULE_TONE = {
+  ongoing: { color: T.red, bg: T.redSoft },
+  vacant: { color: T.amber, bg: T.amberSoft },
+  upcoming: { color: T.blue, bg: T.blueSoft },
+  ended: { color: T.slate, bg: T.slateSoft },
+  ended_early: { color: '#C77700', bg: T.amberSoft },
+  cancelled: { color: T.slate, bg: T.slateSoft },
+  released: { color: '#C77700', bg: T.amberSoft },
+  unknown: { color: T.slate, bg: T.slateSoft },
+};
+
+const scheduleTone = (key) =>
+  SCHEDULE_TONE[key] || { color: T.slate, bg: T.slateSoft };
+
+// ============================================================
 // HELPERS
 // ============================================================
 
@@ -73,27 +133,27 @@ const getScheduleState = (sched, session, ghost, nowMin) => {
   const end = timeToMinutes(sched.end_time);
 
   if (ghost?.room_released) {
-    return { key: 'released', label: 'RELEASED', color: '#C77700' };
+    return { key: 'released', label: 'RELEASED' };
   }
   if (ghost) {
-    return { key: 'cancelled', label: 'CANCELLED', color: '#6B7280' };
+    return { key: 'cancelled', label: 'CANCELLED' };
   }
   if (session?.ended_at) {
-    return { key: 'ended_early', label: 'ENDED EARLY', color: '#C77700' };
+    return { key: 'ended_early', label: 'ENDED EARLY' };
   }
   if (start === null || end === null) {
-    return { key: 'unknown', label: '—', color: '#9CA3AF' };
+    return { key: 'unknown', label: '—' };
   }
   if (nowMin > end) {
-    return { key: 'ended', label: 'ENDED', color: '#9CA3AF' };
+    return { key: 'ended', label: 'ENDED' };
   }
   if (nowMin >= start && nowMin <= end) {
     if (session) {
-      return { key: 'ongoing', label: 'IN PROGRESS', color: '#B00020' };
+      return { key: 'ongoing', label: 'IN PROGRESS' };
     }
-    return { key: 'vacant', label: 'NOT CHECKED IN', color: '#D97706' };
+    return { key: 'vacant', label: 'NOT CHECKED IN' };
   }
-  return { key: 'upcoming', label: 'UPCOMING', color: '#3B82F6' };
+  return { key: 'upcoming', label: 'UPCOMING' };
 };
 
 // ============================================================
@@ -111,14 +171,10 @@ const RoomStatusScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Room detail modal
   const [selectedRoom, setSelectedRoom] = useState(null);
 
-  // Track the current day so we can refetch when midnight passes
   const todayRef = useRef(getTodayCode());
 
-  // Definite height for the modal sheet — required for the inner
-  // ScrollView to actually scroll reliably on all RN platforms.
   const sheetHeight = Math.round(screenHeight * 0.85);
 
   const load = useCallback(async () => {
@@ -196,23 +252,20 @@ const RoomStatusScreen = () => {
     }
   }, []);
 
-  // ---- Option A: refetch every time the screen comes into focus ----
   useFocusEffect(
     useCallback(() => {
       load();
     }, [load])
   );
 
-  // ---- Option B: watch for the day flipping over while mounted ----
   useEffect(() => {
     const tick = setInterval(() => {
       const code = getTodayCode();
       if (code !== todayRef.current) {
         todayRef.current = code;
-        // Midnight just passed — refetch so the schedule matches the new day
         load();
       }
-    }, 60000); // check once a minute
+    }, 60000);
 
     return () => clearInterval(tick);
   }, [load]);
@@ -220,7 +273,7 @@ const RoomStatusScreen = () => {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#8B0000" />
+        <ActivityIndicator size="large" color={T.crimson} />
         <Text style={styles.loadingText}>Loading room status…</Text>
       </View>
     );
@@ -253,54 +306,60 @@ const RoomStatusScreen = () => {
 
   const closeModal = () => setSelectedRoom(null);
 
+  const summaryItems = [
+    { label: 'OCCUPIED', value: counts.occupied || 0, tone: T.red },
+    { label: 'VACANT', value: counts.vacant || 0, tone: T.amber },
+    { label: 'RESERVED', value: counts.reserved || 0, tone: T.blue },
+    { label: 'AVAILABLE', value: counts.available || 0, tone: T.green },
+  ];
+
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#8B0000" />
+      <StatusBar barStyle="light-content" backgroundColor={T.crimson} />
 
-      {/* HEADER */}
+      {/* ==================== HEADER ==================== */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{ width: 60 }}
-        >
-          <Text style={styles.back}>‹ Back</Text>
-        </TouchableOpacity>
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={styles.eyebrow}>LIVE</Text>
-          <Text style={styles.title}>Room Status</Text>
-        </View>
-        <View style={{ width: 60 }} />
-      </View>
+        <View style={styles.headerDecor} />
 
-      {/* SUMMARY */}
-      <View style={styles.summaryRow}>
-        <View style={styles.summaryChip}>
-          <Text style={[styles.summaryNum, { color: '#B00020' }]}>
-            {counts.occupied || 0}
-          </Text>
-          <Text style={styles.summaryLbl}>Occupied</Text>
-        </View>
-        <View style={styles.summaryChip}>
-          <Text style={[styles.summaryNum, { color: '#D97706' }]}>
-            {counts.vacant || 0}
-          </Text>
-          <Text style={styles.summaryLbl}>Vacant</Text>
-        </View>
-        <View style={styles.summaryChip}>
-          <Text style={[styles.summaryNum, { color: '#3B82F6' }]}>
-            {counts.reserved || 0}
-          </Text>
-          <Text style={styles.summaryLbl}>Reserved</Text>
-        </View>
-        <View style={styles.summaryChip}>
-          <Text style={[styles.summaryNum, { color: '#059669' }]}>
-            {counts.available || 0}
-          </Text>
-          <Text style={styles.summaryLbl}>Available</Text>
+        <View style={styles.headerContent}>
+          <View style={styles.headerTopRow}>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={styles.backButton}
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+            >
+              <Text style={styles.backText}>‹</Text>
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, paddingLeft: 12 }}>
+              <Text style={styles.headerEyebrow}>LIVE</Text>
+              <Text style={styles.headerTitle}>Room Status</Text>
+            </View>
+
+            <View style={styles.livePill}>
+              <View style={styles.livePillDot} />
+              <Text style={styles.livePillText}>UPDATED</Text>
+            </View>
+          </View>
         </View>
       </View>
 
-      {/* LIST */}
+      {/* ==================== SUMMARY STRIP ==================== */}
+      <View style={styles.summaryStrip}>
+        {summaryItems.map((item, i) => (
+          <View key={item.label} style={styles.summaryItem}>
+            <Text style={[styles.summaryValue, { color: item.tone }]}>
+              {String(item.value).padStart(2, '0')}
+            </Text>
+            <Text style={styles.summaryLabel}>{item.label}</Text>
+            {i < summaryItems.length - 1 && (
+              <View style={styles.summaryDivider} />
+            )}
+          </View>
+        ))}
+      </View>
+
+      {/* ==================== LIST ==================== */}
       <FlatList
         data={statuses}
         keyExtractor={(item) => item.id}
@@ -311,44 +370,68 @@ const RoomStatusScreen = () => {
               setRefreshing(true);
               load();
             }}
+            tintColor={T.crimson}
           />
         }
-        contentContainerStyle={{ padding: 16, paddingTop: 8 }}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => setSelectedRoom(item)}
-            style={[styles.roomCard, { borderLeftColor: item.color }]}
-          >
-            <View style={styles.roomLeft}>
-              <View style={styles.roomNameRow}>
-                <Text style={styles.roomName}>{item.room_code}</Text>
-                {item.room_type === 'Gymnasium' && (
-                  <View style={styles.largeVenuePill}>
-                    <Text style={styles.largeVenueText}>LARGE VENUE</Text>
-                  </View>
+        contentContainerStyle={styles.listContent}
+        renderItem={({ item, index }) => {
+          const tone = stateTone(item.state);
+          const isLast = index === statuses.length - 1;
+          return (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setSelectedRoom(item)}
+              style={[styles.roomRow, !isLast && styles.roomRowDivided]}
+            >
+              <View style={[styles.roomRail, { backgroundColor: tone.color }]} />
+
+              <View style={styles.roomBody}>
+                <View style={styles.roomNameRow}>
+                  <Text style={styles.roomName} numberOfLines={1}>
+                    {item.room_code}
+                  </Text>
+                  {item.room_type === 'Gymnasium' && (
+                    <View style={styles.largeVenuePill}>
+                      <Text style={styles.largeVenueText}>LARGE VENUE</Text>
+                    </View>
+                  )}
+                </View>
+
+                <Text style={styles.roomFloor}>
+                  Floor {item.floor_level}
+                </Text>
+
+                {!!item.reason && (
+                  <Text style={styles.roomReason} numberOfLines={1}>
+                    {item.reason}
+                  </Text>
                 )}
               </View>
-              <Text style={styles.roomFloor}>Floor {item.floor_level}</Text>
-              {!!item.reason && (
-                <Text style={styles.roomReason} numberOfLines={1}>
-                  {item.reason}
-                </Text>
-              )}
-            </View>
 
-            <View
-              style={[
-                styles.statusBadge,
-                { backgroundColor: `${item.color}20` },
-              ]}
-            >
-              <Text style={[styles.statusText, { color: item.color }]}>
-                {item.label}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        )}
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: tone.bg },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.statusBadgeDot,
+                    { backgroundColor: tone.color },
+                  ]}
+                />
+                <Text
+                  style={[styles.statusText, { color: tone.color }]}
+                  numberOfLines={1}
+                >
+                  {item.label}
+                </Text>
+              </View>
+
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+          );
+        }}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
             <Text style={styles.emptyText}>No rooms found</Text>
@@ -398,21 +481,32 @@ const RoomStatusScreen = () => {
                   </View>
 
                   <View style={styles.modalBadgesRow}>
-                    <View
-                      style={[
-                        styles.modalStatusBadge,
-                        { backgroundColor: `${selectedRoom.color}20` },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.modalStatusBadgeText,
-                          { color: selectedRoom.color },
-                        ]}
-                      >
-                        ● {selectedRoom.label}
-                      </Text>
-                    </View>
+                    {(() => {
+                      const tone = stateTone(selectedRoom.state);
+                      return (
+                        <View
+                          style={[
+                            styles.modalStatusBadge,
+                            { backgroundColor: tone.bg },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.modalStatusBadgeDot,
+                              { backgroundColor: tone.color },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.modalStatusBadgeText,
+                              { color: tone.color },
+                            ]}
+                          >
+                            {selectedRoom.label}
+                          </Text>
+                        </View>
+                      );
+                    })()}
 
                     <View style={styles.modalCountBadge}>
                       <Text style={styles.modalCountBadgeText}>
@@ -461,105 +555,150 @@ const RoomStatusScreen = () => {
                         ghost,
                         nowMin
                       );
+                      const tone = scheduleTone(state.key);
 
                       return (
-                        <View
-                          key={sched.id}
-                          style={[
-                            styles.schedCard,
-                            { borderLeftColor: state.color },
-                          ]}
-                        >
-                          <View style={styles.schedTimeRow}>
-                            <View style={styles.schedTimeItem}>
-                              <Text style={styles.schedTimeLabel}>START</Text>
-                              <Text style={styles.schedTimeValue}>
-                                {formatTime(sched.start_time)}
-                              </Text>
-                            </View>
-                            <View style={styles.schedTimeDivider} />
-                            <View style={styles.schedTimeItem}>
-                              <Text style={styles.schedTimeLabel}>END</Text>
-                              <Text style={styles.schedTimeValue}>
-                                {formatTime(sched.end_time)}
-                              </Text>
-                            </View>
-                          </View>
+                        <View key={sched.id} style={styles.schedCard}>
+                          <View
+                            style={[
+                              styles.schedRail,
+                              { backgroundColor: tone.color },
+                            ]}
+                          />
 
-                          <View style={styles.schedStatusRow}>
-                            <View
-                              style={[
-                                styles.schedBadge,
-                                { backgroundColor: `${state.color}20` },
-                              ]}
-                            >
-                              <Text
+                          <View style={styles.schedBody}>
+                            <View style={styles.schedTopRow}>
+                              <View
                                 style={[
-                                  styles.schedBadgeText,
-                                  { color: state.color },
+                                  styles.schedBadge,
+                                  { backgroundColor: tone.bg },
                                 ]}
                               >
-                                {state.label}
-                              </Text>
-                            </View>
-                          </View>
-
-                          <Text style={styles.schedSubject}>
-                            {sched.subject_code}
-                          </Text>
-                          {!!sched.course_title && (
-                            <Text
-                              style={styles.schedTitle}
-                              numberOfLines={2}
-                            >
-                              {sched.course_title}
-                            </Text>
-                          )}
-
-                          <View style={styles.schedMetaRow}>
-                            {!!sched.section && (
-                              <Text style={styles.schedMeta}>
-                                <Text style={styles.schedMetaLabel}>
-                                  Section:{' '}
+                                <Text
+                                  style={[
+                                    styles.schedBadgeText,
+                                    { color: tone.color },
+                                  ]}
+                                >
+                                  {state.label}
                                 </Text>
-                                {sched.section}
+                              </View>
+                            </View>
+
+                            <Text style={styles.schedSubject}>
+                              {sched.subject_code}
+                            </Text>
+                            {!!sched.course_title && (
+                              <Text
+                                style={styles.schedTitle}
+                                numberOfLines={2}
+                              >
+                                {sched.course_title}
                               </Text>
                             )}
-                          </View>
 
-                          {!!sched.professor_name && (
-                            <View style={styles.schedMetaRow}>
-                              <Text style={styles.schedMeta}>
-                                <Text style={styles.schedMetaLabel}>
-                                  Professor:{' '}
+                            <View style={styles.schedTimeRow}>
+                              <View style={styles.schedTimeItem}>
+                                <Text style={styles.schedTimeLabel}>START</Text>
+                                <Text style={styles.schedTimeValue}>
+                                  {formatTime(sched.start_time)}
                                 </Text>
-                                {sched.professor_name}
-                              </Text>
+                              </View>
+                              <View style={styles.schedTimeDivider} />
+                              <View style={styles.schedTimeItem}>
+                                <Text style={styles.schedTimeLabel}>END</Text>
+                                <Text style={styles.schedTimeValue}>
+                                  {formatTime(sched.end_time)}
+                                </Text>
+                              </View>
                             </View>
-                          )}
 
-                          {session?.scanned_at && !session?.ended_at && (
-                            <Text style={styles.schedNote}>
-                              Checked in at{' '}
-                              {formatVerifiedTime(session.scanned_at)}
-                            </Text>
-                          )}
-                          {session?.ended_at && (
-                            <Text style={styles.schedNote}>
-                              Ended early at{' '}
-                              {formatVerifiedTime(session.ended_at)}
-                            </Text>
-                          )}
-                          {ghost?.room_released && (
-                            <Text style={styles.schedNote}>
-                              Room was released by the professor.
-                            </Text>
-                          )}
-                          {ghost && !ghost?.room_released && (
-                            <Text style={styles.schedNote}>
-                              Class was cancelled.
-                            </Text>
-                          )}
+                            {(!!sched.section || !!sched.professor_name) && (
+                              <View style={styles.schedMetaBlock}>
+                                {!!sched.section && (
+                                  <View style={styles.schedMetaRow}>
+                                    <Text style={styles.schedMetaLabel}>
+                                      SECTION
+                                    </Text>
+                                    <Text
+                                      style={styles.schedMetaValue}
+                                      numberOfLines={1}
+                                    >
+                                      {sched.section}
+                                    </Text>
+                                  </View>
+                                )}
+                                {!!sched.professor_name && (
+                                  <View style={styles.schedMetaRow}>
+                                    <Text style={styles.schedMetaLabel}>
+                                      PROFESSOR
+                                    </Text>
+                                    <Text
+                                      style={styles.schedMetaValue}
+                                      numberOfLines={1}
+                                    >
+                                      {sched.professor_name}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+
+                            {session?.scanned_at && !session?.ended_at && (
+                              <View style={styles.schedNote}>
+                                <View
+                                  style={[
+                                    styles.schedNoteDot,
+                                    { backgroundColor: T.green },
+                                  ]}
+                                />
+                                <Text style={styles.schedNoteText}>
+                                  Checked in at{' '}
+                                  {formatVerifiedTime(session.scanned_at)}
+                                </Text>
+                              </View>
+                            )}
+                            {session?.ended_at && (
+                              <View style={styles.schedNote}>
+                                <View
+                                  style={[
+                                    styles.schedNoteDot,
+                                    { backgroundColor: '#C77700' },
+                                  ]}
+                                />
+                                <Text style={styles.schedNoteText}>
+                                  Ended early at{' '}
+                                  {formatVerifiedTime(session.ended_at)}
+                                </Text>
+                              </View>
+                            )}
+                            {ghost?.room_released && (
+                              <View style={styles.schedNote}>
+                                <View
+                                  style={[
+                                    styles.schedNoteDot,
+                                    { backgroundColor: '#C77700' },
+                                  ]}
+                                />
+                                <Text style={styles.schedNoteText}>
+                                  Room was released by the professor.
+                                </Text>
+                              </View>
+                            )}
+                            {ghost && !ghost?.room_released && (
+                              <View style={styles.schedNote}>
+                                <View
+                                  style={[
+                                    styles.schedNoteDot,
+                                    { backgroundColor: T.slate },
+                                  ]}
+                                />
+                                <Text style={styles.schedNoteText}>
+                                  Class was cancelled.
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                         </View>
                       );
                     })
@@ -574,109 +713,240 @@ const RoomStatusScreen = () => {
   );
 };
 
+// ============================================================
+// STYLES
+// ============================================================
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F7' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { marginTop: 12, color: '#6B7280' },
+  container: { flex: 1, backgroundColor: T.canvas },
 
-  // HEADER
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 54,
-    paddingBottom: 16,
-    backgroundColor: '#8B0000',
-  },
-  back: { color: '#FFF', fontSize: 16, fontWeight: '600' },
-  eyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    color: '#FFF',
-    opacity: 0.7,
-  },
-  title: { fontSize: 18, fontWeight: '800', color: '#FFF' },
-
-  // SUMMARY
-  summaryRow: { flexDirection: 'row', padding: 16, gap: 8 },
-  summaryChip: {
+  center: {
     flex: 1,
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 12,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    justifyContent: 'center',
+    backgroundColor: T.canvas,
   },
-  summaryNum: { fontSize: 20, fontWeight: '900' },
-  summaryLbl: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6B7280',
-    marginTop: 2,
+  loadingText: {
+    marginTop: 12,
+    color: T.inkMuted,
+    fontSize: 13,
+    fontWeight: '500',
   },
 
-  // ROOM CARD
-  roomCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 10,
-    borderLeftWidth: 4,
+  // ==================== HEADER ====================
+  header: {
+    backgroundColor: T.crimson,
+    paddingTop: 54,
+    paddingBottom: 22,
+    overflow: 'hidden',
+  },
+  headerDecor: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: T.crimsonLight,
+    opacity: 0.4,
+  },
+  headerContent: {
+    paddingHorizontal: 20,
+  },
+  headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
   },
-  roomLeft: { flex: 1 },
+  backButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '600',
+    lineHeight: 22,
+    marginTop: -4,
+  },
+  headerEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#FFFFFF',
+    opacity: 0.65,
+    marginBottom: 4,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  livePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    gap: 6,
+  },
+  livePillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7CFC9E',
+  },
+  livePillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: '#FFFFFF',
+  },
+
+  // ==================== SUMMARY STRIP ====================
+  summaryStrip: {
+    flexDirection: 'row',
+    backgroundColor: T.surface,
+    marginTop: -14,
+    marginHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.hair,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  summaryItem: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  summaryDivider: {
+    position: 'absolute',
+    right: 0,
+    top: 12,
+    bottom: 12,
+    width: 1,
+    backgroundColor: T.hair2,
+  },
+  summaryValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+    fontVariant: ['tabular-nums'],
+  },
+  summaryLabel: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: T.inkFaint,
+    marginTop: 3,
+    letterSpacing: 1.4,
+  },
+
+  // ==================== ROOM LIST ====================
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 22,
+    paddingBottom: 40,
+  },
+  roomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: T.surface,
+    paddingVertical: 14,
+    paddingRight: 14,
+    overflow: 'hidden',
+  },
+  roomRowDivided: {
+    borderBottomWidth: 1,
+    borderBottomColor: T.hair2,
+  },
+  roomRail: {
+    width: 3,
+    alignSelf: 'stretch',
+    marginRight: 12,
+    borderRadius: 2,
+  },
+  roomBody: { flex: 1, paddingRight: 8 },
   roomNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
+    marginBottom: 3,
   },
-  roomName: { fontSize: 15, fontWeight: '900', color: '#1A1A1A' },
-  roomFloor: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  roomName: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.2,
+  },
+  roomFloor: {
+    fontSize: 11,
+    color: T.inkMuted,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
   roomReason: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    marginTop: 4,
-    fontStyle: 'italic',
+    fontSize: 11,
+    color: T.inkFaint,
+    marginTop: 3,
+    fontWeight: '500',
   },
 
-  // LARGE VENUE BADGE
   largeVenuePill: {
-    backgroundColor: '#FEF3C7',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+    backgroundColor: T.amberSoft,
   },
   largeVenueText: {
     fontSize: 8,
     fontWeight: '900',
-    letterSpacing: 0.5,
-    color: '#92400E',
+    letterSpacing: 0.8,
+    color: T.amber,
   },
 
-  // STATUS BADGE
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 7,
+    gap: 6,
+    maxWidth: 130,
+  },
+  statusBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   statusText: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
   },
 
-  // EMPTY
+  chevron: {
+    fontSize: 20,
+    color: T.inkFaint,
+    fontWeight: '300',
+    paddingLeft: 8,
+    lineHeight: 20,
+  },
+
   emptyBox: { padding: 40, alignItems: 'center' },
-  emptyText: { color: '#9CA3AF', fontSize: 13 },
+  emptyText: { color: T.inkMuted, fontSize: 13, fontWeight: '500' },
 
   // ============================================================
   // ROOM DETAIL MODAL
@@ -690,23 +960,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: T.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingTop: 8,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 20,
   },
   modalGrabber: {
     alignSelf: 'center',
     width: 44,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#D1D5DB',
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D4D4D8',
     marginBottom: 16,
   },
 
@@ -720,21 +985,21 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalEyebrow: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1.5,
-    color: '#8B0000',
-    marginBottom: 4,
+    letterSpacing: 2,
+    color: T.crimson,
+    marginBottom: 5,
   },
   modalRoom: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '900',
-    color: '#1A1A1A',
-    letterSpacing: -0.4,
+    color: T.ink,
+    letterSpacing: -0.6,
   },
   modalSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
+    fontSize: 12,
+    color: T.inkMuted,
     fontWeight: '600',
     marginTop: 4,
   },
@@ -742,13 +1007,13 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F5F5F7',
+    backgroundColor: T.hair2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalCloseText: {
-    fontSize: 15,
-    color: '#6B7280',
+    fontSize: 14,
+    color: T.inkSoft,
     fontWeight: '700',
     lineHeight: 16,
   },
@@ -760,40 +1025,49 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalStatusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 7,
+    gap: 6,
+  },
+  modalStatusBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   modalStatusBadgeText: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.4,
-  },
-  modalCountBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F7',
-  },
-  modalCountBadgeText: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-    color: '#4B5563',
-  },
-  modalReason: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontStyle: 'italic',
-    marginBottom: 12,
-  },
-  modalSectionLabel: {
     fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 1.2,
-    color: '#9CA3AF',
-    marginTop: 4,
-    marginBottom: 10,
+    letterSpacing: 0.6,
+  },
+  modalCountBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 7,
+    backgroundColor: T.hair2,
+  },
+  modalCountBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    color: T.inkSoft,
+  },
+  modalReason: {
+    fontSize: 11,
+    color: T.inkMuted,
+    fontStyle: 'italic',
+    marginBottom: 12,
+    fontWeight: '500',
+  },
+  modalSectionLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.inkFaint,
+    marginTop: 6,
+    marginBottom: 12,
   },
 
   scheduleScroll: {
@@ -806,35 +1080,72 @@ const styles = StyleSheet.create({
 
   modalEmptyBox: {
     padding: 28,
-    backgroundColor: '#F7F5F2',
+    backgroundColor: T.hair2,
     borderRadius: 12,
     alignItems: 'center',
   },
   modalEmptyText: {
-    fontSize: 13,
-    color: '#6B7280',
+    fontSize: 12,
+    color: T.inkMuted,
     textAlign: 'center',
+    fontWeight: '500',
   },
 
-  // SCHEDULE CARD
+  // ==================== SCHEDULE CARD ====================
   schedCard: {
-    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    backgroundColor: T.surface,
     borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderLeftWidth: 4,
+    borderColor: T.hair,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  schedRail: {
+    width: 3,
+  },
+  schedBody: {
+    flex: 1,
+    padding: 14,
+  },
+  schedTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  schedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  schedBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+
+  schedSubject: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: T.crimson,
+    letterSpacing: -0.2,
+  },
+  schedTitle: {
+    fontSize: 13,
+    color: T.ink,
+    fontWeight: '500',
+    marginTop: 2,
+    lineHeight: 18,
   },
 
   schedTimeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F7F5F2',
+    backgroundColor: '#FAFAFA',
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    marginBottom: 10,
+    marginTop: 12,
   },
   schedTimeItem: {
     flex: 1,
@@ -842,66 +1153,63 @@ const styles = StyleSheet.create({
   schedTimeLabel: {
     fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1,
-    color: '#9A9A9E',
-    marginBottom: 2,
+    letterSpacing: 1.2,
+    color: T.inkFaint,
+    marginBottom: 3,
   },
   schedTimeValue: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#1A1A1A',
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.2,
+    fontVariant: ['tabular-nums'],
   },
   schedTimeDivider: {
     width: 1,
-    height: 28,
-    backgroundColor: '#E5E7EB',
+    height: 30,
+    backgroundColor: T.hair,
     marginHorizontal: 12,
   },
 
-  schedStatusRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  schedBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  schedBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.4,
-  },
-  schedSubject: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#8B0000',
-    letterSpacing: 0.3,
-  },
-  schedTitle: {
-    fontSize: 13,
-    color: '#1A1A1A',
-    fontWeight: '600',
-    marginTop: 2,
-    lineHeight: 18,
+  schedMetaBlock: {
+    marginTop: 12,
+    gap: 6,
   },
   schedMetaRow: {
     flexDirection: 'row',
-    marginTop: 4,
-  },
-  schedMeta: {
-    fontSize: 12,
-    color: '#6B7280',
+    alignItems: 'center',
+    gap: 10,
   },
   schedMetaLabel: {
-    color: '#B0B0B5',
-    fontWeight: '600',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
+    width: 78,
   },
+  schedMetaValue: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: T.inkSoft,
+  },
+
   schedNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 8,
+  },
+  schedNoteDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  schedNoteText: {
     fontSize: 11,
-    color: '#6B7280',
-    fontStyle: 'italic',
-    marginTop: 6,
+    color: T.inkMuted,
+    fontWeight: '600',
+    flex: 1,
   },
 });
 

@@ -19,11 +19,35 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../services/supabase'
 
 // ============================================================
-// CONSTANTS
+// DESIGN TOKENS
 // ============================================================
 
-const PRIMARY = '#8B0000'
-const BG = '#F5F5F7'
+const T = {
+  crimson: '#8B0000',
+  crimsonLight: '#A61B1B',
+  ink: '#0B0B0D',
+  inkSoft: '#3F3F46',
+  inkMuted: '#71717A',
+  inkFaint: '#A1A1AA',
+  hair: '#E7E7E9',
+  hair2: '#F1F1F3',
+  canvas: '#F2F2F4',
+  surface: '#FFFFFF',
+  green: '#0F7A4A',
+  greenSoft: '#ECFDF5',
+  amber: '#B45309',
+  amberSoft: '#FEF3C7',
+  red: '#9F1239',
+  redSoft: '#FCE7F3',
+  blue: '#1D4ED8',
+  blueSoft: '#DBEAFE',
+  slate: '#94A3B8',
+  slateSoft: '#F1F5F9',
+}
+
+// ============================================================
+// CONSTANTS
+// ============================================================
 
 // Heuristic rank from position title, so the most senior
 // officials appear at the top of each college group.
@@ -37,6 +61,19 @@ const rankOf = (position = '') => {
   if (p.includes('chair') || p.includes('head')) return 6
   if (p.includes('coordinator')) return 7
   return 8
+}
+
+// Short label for the position (keeps card titles compact)
+const ROLE_TAG = (position = '') => {
+  const p = position.toLowerCase()
+  if (p.includes('president') && !p.includes('vice')) return 'PRESIDENT'
+  if (p.includes('vice president') || p.startsWith('vp ')) return 'VICE PRES'
+  if (p.includes('chancellor')) return 'CHANCELLOR'
+  if (p.includes('dean')) return 'DEAN'
+  if (p.includes('director')) return 'DIRECTOR'
+  if (p.includes('chair') || p.includes('head')) return 'CHAIR'
+  if (p.includes('coordinator')) return 'COORD'
+  return 'OFFICIAL'
 }
 
 // ============================================================
@@ -135,7 +172,6 @@ const OfficialsScreen = () => {
         }),
       }))
       .sort((a, b) => {
-        // Put University Administration first, then alphabetical
         if (a.title === 'University Administration') return -1
         if (b.title === 'University Administration') return 1
         return a.title.localeCompare(b.title)
@@ -172,7 +208,7 @@ const OfficialsScreen = () => {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={PRIMARY} />
+        <ActivityIndicator size="large" color={T.crimson} />
         <Text style={styles.loadingText}>Loading officials…</Text>
       </View>
     )
@@ -183,30 +219,45 @@ const OfficialsScreen = () => {
   // ------------------------------------------------------------
   return (
     <View style={styles.container}>
-      {/* HEADER */}
+      {/* ==================== RED HEADER ==================== */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.headerBack}
-        >
-          <Feather name="chevron-left" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerEyebrow}>UNIVERSITY DIRECTORY</Text>
-          <Text style={styles.headerTitle}>Officials</Text>
+        <View style={styles.headerDecor1} />
+        <View style={styles.headerDecor2} />
+
+        <View style={styles.headerContent}>
+          <View style={styles.headerTopRow}>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={styles.headerBack}
+              activeOpacity={0.75}
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+            >
+              <Text style={styles.headerBackText}>‹</Text>
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, paddingLeft: 12 }}>
+              <Text style={styles.headerEyebrow}>UNIVERSITY DIRECTORY</Text>
+              <Text style={styles.headerTitle}>Officials</Text>
+            </View>
+
+            <View style={styles.headerCountPill}>
+              <Text style={styles.headerCountText}>
+                {String(officials.length).padStart(2, '0')}
+              </Text>
+            </View>
+          </View>
         </View>
-        <View style={styles.headerBack} />
       </View>
 
-      {/* SEARCH */}
+      {/* ==================== SEARCH ==================== */}
       <View style={styles.searchWrap}>
         <View style={styles.searchBox}>
-          <Feather name="search" size={16} color="#9CA3AF" />
+          <Feather name="search" size={15} color={T.inkFaint} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search name, position, or college…"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={T.inkFaint}
             style={styles.searchInput}
             autoCorrect={false}
             autoCapitalize="none"
@@ -214,36 +265,48 @@ const OfficialsScreen = () => {
             onSubmitEditing={() => Keyboard.dismiss()}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Feather name="x" size={18} color="#9CA3AF" />
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name="x" size={16} color={T.inkFaint} />
             </TouchableOpacity>
           )}
         </View>
+
         <Text style={styles.resultCount}>
-          {totalCount} {totalCount === 1 ? 'official' : 'officials'}
+          {totalCount} {totalCount === 1 ? 'OFFICIAL' : 'OFFICIALS'}
+          {searchQuery.trim() ? ' FOUND' : ''}
         </Text>
       </View>
 
-      {/* ERROR */}
+      {/* ==================== ERROR ==================== */}
       {errorMessage ? (
         <View style={styles.errorBox}>
-          <Feather name="alert-circle" size={16} color="#B00020" />
-          <Text style={styles.errorText}>{errorMessage}</Text>
+          <View style={styles.errorStripe} />
+          <Feather name="alert-circle" size={15} color={T.red} />
+          <Text style={styles.errorText} numberOfLines={3}>
+            {errorMessage}
+          </Text>
         </View>
       ) : null}
 
-      {/* EMPTY */}
+      {/* ==================== EMPTY ==================== */}
       {!errorMessage && sections.length === 0 ? (
         <View style={styles.emptyWrap}>
           <View style={styles.emptyIconWrap}>
-            <Feather name="users" size={32} color={PRIMARY} />
+            <View style={styles.emptyIconRing} />
+            <View style={styles.emptyIconDot} />
           </View>
+          <Text style={styles.emptyEyebrow}>
+            {searchQuery.trim() ? 'NO MATCHES' : 'DIRECTORY EMPTY'}
+          </Text>
           <Text style={styles.emptyTitle}>
-            {searchQuery.trim() ? 'No matches' : 'No officials yet'}
+            {searchQuery.trim() ? 'Nothing found' : 'No officials yet'}
           </Text>
           <Text style={styles.emptyText}>
             {searchQuery.trim()
-              ? `Nothing matched "${searchQuery}".`
+              ? `Nothing matched "${searchQuery}". Try another name, position, or college.`
               : 'The directory has not been populated yet.'}
           </Text>
         </View>
@@ -258,14 +321,20 @@ const OfficialsScreen = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor={PRIMARY}
+              tintColor={T.crimson}
             />
           }
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionHeader}>
               <View style={styles.sectionDot} />
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              <Text style={styles.sectionCount}>{section.data.length}</Text>
+              <Text style={styles.sectionTitle} numberOfLines={1}>
+                {section.title}
+              </Text>
+              <View style={styles.sectionCountPill}>
+                <Text style={styles.sectionCountText}>
+                  {String(section.data.length).padStart(2, '0')}
+                </Text>
+              </View>
             </View>
           )}
           renderItem={({ item }) => {
@@ -274,6 +343,7 @@ const OfficialsScreen = () => {
               .trim()
               .charAt(0)
               .toUpperCase()
+            const roleTag = ROLE_TAG(item.position || '')
 
             return (
               <TouchableOpacity
@@ -290,22 +360,33 @@ const OfficialsScreen = () => {
                     <Text style={styles.name} numberOfLines={2}>
                       {item.full_name}
                     </Text>
-                    <Text style={styles.position} numberOfLines={2}>
-                      {item.position}
-                    </Text>
-                    {item.college ? (
-                      <View style={styles.collegePill}>
-                        <Text style={styles.collegePillText} numberOfLines={1}>
+
+                    <View style={styles.metaLineRow}>
+                      <View style={styles.roleTag}>
+                        <Text style={styles.roleTagText}>{roleTag}</Text>
+                      </View>
+                      {item.college ? (
+                        <Text
+                          style={styles.metaLine}
+                          numberOfLines={1}
+                        >
                           {item.college}
                         </Text>
-                      </View>
-                    ) : null}
+                      ) : null}
+                    </View>
+
+                    <Text
+                      style={styles.position}
+                      numberOfLines={2}
+                    >
+                      {item.position}
+                    </Text>
                   </View>
 
                   <Feather
                     name={expanded ? 'chevron-up' : 'chevron-down'}
-                    size={20}
-                    color="#9CA3AF"
+                    size={18}
+                    color={T.inkFaint}
                   />
                 </View>
 
@@ -313,8 +394,14 @@ const OfficialsScreen = () => {
                   <View style={styles.details}>
                     {item.office_location ? (
                       <View style={styles.detailRow}>
-                        <Feather name="map-pin" size={14} color={PRIMARY} />
-                        <Text style={styles.detailText}>
+                        <View style={styles.detailIcon}>
+                          <Feather
+                            name="map-pin"
+                            size={13}
+                            color={T.crimson}
+                          />
+                        </View>
+                        <Text style={styles.detailText} numberOfLines={2}>
                           {item.office_location}
                         </Text>
                       </View>
@@ -322,7 +409,9 @@ const OfficialsScreen = () => {
 
                     {item.contact_email ? (
                       <View style={styles.detailRow}>
-                        <Feather name="mail" size={14} color={PRIMARY} />
+                        <View style={styles.detailIcon}>
+                          <Feather name="mail" size={13} color={T.crimson} />
+                        </View>
                         <Text style={styles.detailText} numberOfLines={1}>
                           {item.contact_email}
                         </Text>
@@ -331,8 +420,10 @@ const OfficialsScreen = () => {
 
                     {item.contact_number ? (
                       <View style={styles.detailRow}>
-                        <Feather name="phone" size={14} color={PRIMARY} />
-                        <Text style={styles.detailText}>
+                        <View style={styles.detailIcon}>
+                          <Feather name="phone" size={13} color={T.crimson} />
+                        </View>
+                        <Text style={styles.detailText} numberOfLines={1}>
                           {item.contact_number}
                         </Text>
                       </View>
@@ -345,7 +436,7 @@ const OfficialsScreen = () => {
                           onPress={() => handleEmail(item.contact_email)}
                           activeOpacity={0.85}
                         >
-                          <Feather name="mail" size={14} color="#FFFFFF" />
+                          <Feather name="mail" size={13} color="#FFFFFF" />
                           <Text style={styles.actionButtonText}>Email</Text>
                         </TouchableOpacity>
                       ) : null}
@@ -356,7 +447,7 @@ const OfficialsScreen = () => {
                           onPress={() => handleCall(item.contact_number)}
                           activeOpacity={0.85}
                         >
-                          <Feather name="phone" size={14} color={PRIMARY} />
+                          <Feather name="phone" size={13} color={T.crimson} />
                           <Text style={styles.actionButtonTextAlt}>Call</Text>
                         </TouchableOpacity>
                       ) : null}
@@ -377,84 +468,167 @@ const OfficialsScreen = () => {
 // ============================================================
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: T.canvas },
 
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: BG,
+    backgroundColor: T.canvas,
   },
-  loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
+  loadingText: {
+    marginTop: 12,
+    color: T.inkMuted,
+    fontSize: 13,
+    fontWeight: '500',
+  },
 
-  // HEADER
+  // ==================== HEADER ====================
   header: {
+    backgroundColor: T.crimson,
+    paddingTop: 54,
+    paddingBottom: 22,
+    overflow: 'hidden',
+  },
+  headerDecor1: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: T.crimsonLight,
+    opacity: 0.4,
+  },
+  headerDecor2: {
+    position: 'absolute',
+    top: 30,
+    right: 30,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FFFFFF',
+    opacity: 0.06,
+  },
+  headerContent: {
+    paddingHorizontal: 20,
+  },
+  headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 54,
-    paddingBottom: 16,
-    backgroundColor: PRIMARY,
   },
-  headerBack: { width: 40, alignItems: 'center' },
-  headerCenter: { flex: 1, alignItems: 'center' },
+  headerBack: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBackText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '600',
+    lineHeight: 22,
+    marginTop: -4,
+  },
   headerEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: '#FFD5D5',
-    marginBottom: 2,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#FFFFFF',
+    opacity: 0.65,
+    marginBottom: 4,
   },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF' },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  headerCountPill: {
+    minWidth: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
+    alignItems: 'center',
+  },
+  headerCountText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: '#FFFFFF',
+    fontVariant: ['tabular-nums'],
+  },
 
-  // SEARCH
+  // ==================== SEARCH ====================
   searchWrap: {
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 16,
     paddingBottom: 8,
-    backgroundColor: BG,
+    backgroundColor: T.canvas,
   },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.surface,
     borderRadius: 12,
     paddingHorizontal: 12,
     height: 44,
     gap: 8,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: T.hair,
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: '#1A1A1A',
+    color: T.ink,
     padding: 0,
+    fontWeight: '500',
   },
   resultCount: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    fontWeight: '600',
-    marginTop: 8,
-    marginLeft: 2,
+    fontSize: 9,
+    color: T.inkFaint,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    marginTop: 10,
+    marginLeft: 4,
   },
 
-  // ERROR
+  // ==================== ERROR ====================
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginHorizontal: 16,
     marginTop: 8,
-    padding: 12,
-    backgroundColor: '#FDECEC',
+    paddingVertical: 12,
+    paddingRight: 12,
+    backgroundColor: T.surface,
     borderRadius: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: '#B00020',
+    borderWidth: 1,
+    borderColor: T.hair,
+    overflow: 'hidden',
   },
-  errorText: { color: '#B00020', fontSize: 13, flex: 1 },
+  errorStripe: {
+    width: 4,
+    alignSelf: 'stretch',
+    backgroundColor: T.red,
+    marginRight: 8,
+  },
+  errorText: {
+    color: T.red,
+    fontSize: 12,
+    flex: 1,
+    fontWeight: '600',
+  },
 
-  // EMPTY
+  // ==================== EMPTY ====================
   emptyWrap: {
     flex: 1,
     alignItems: 'center',
@@ -462,73 +636,107 @@ const styles = StyleSheet.create({
     padding: 40,
   },
   emptyIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#FDECEC',
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 22,
+  },
+  emptyIconRing: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: T.crimson,
+    opacity: 0.35,
+  },
+  emptyIconDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: T.crimson,
+  },
+  emptyEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.crimson,
+    marginBottom: 8,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    marginBottom: 6,
+    fontSize: 20,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.3,
+    marginBottom: 8,
   },
   emptyText: {
     fontSize: 13,
-    color: '#6B7280',
+    color: T.inkMuted,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 19,
+    fontWeight: '500',
+    paddingHorizontal: 12,
   },
 
-  // LIST
-  listContent: { padding: 16, paddingBottom: 40 },
+  // ==================== LIST ====================
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 40,
+  },
 
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 18,
-    marginBottom: 10,
+    marginTop: 22,
+    marginBottom: 12,
+    gap: 10,
   },
   sectionDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: PRIMARY,
-    marginRight: 10,
+    backgroundColor: T.crimson,
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#1A1A1A',
+    fontSize: 13,
+    fontWeight: '900',
+    color: T.ink,
     flex: 1,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
-  sectionCount: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#9CA3AF',
+  sectionCountPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: T.hair2,
+  },
+  sectionCountText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: T.inkMuted,
+    letterSpacing: 0.6,
+    fontVariant: ['tabular-nums'],
   },
 
-  // CARD
+  // ==================== CARD ====================
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.surface,
     borderRadius: 14,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#ECECEC',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    borderColor: T.hair,
   },
   cardExpanded: {
     borderColor: '#F3C6C6',
-    shadowColor: PRIMARY,
-    shadowOpacity: 0.10,
   },
   cardTop: {
     flexDirection: 'row',
@@ -539,61 +747,90 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: '#FDECEC',
+    borderWidth: 1,
+    borderColor: '#F5C2C0',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   avatarText: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: PRIMARY,
+    fontSize: 16,
+    fontWeight: '900',
+    color: T.crimson,
+    letterSpacing: 0.4,
   },
-  cardInfo: { flex: 1, marginRight: 8 },
+  cardInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
   name: {
     fontSize: 15,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    letterSpacing: -0.2,
-  },
-  position: {
-    fontSize: 12,
-    color: '#4B5563',
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  collegePill: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    marginTop: 6,
-  },
-  collegePillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#6B7280',
-    letterSpacing: 0.3,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.3,
   },
 
-  // DETAILS
+  metaLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 5,
+    flexWrap: 'wrap',
+  },
+  roleTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: T.crimson,
+  },
+  roleTagText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#FFFFFF',
+  },
+  metaLine: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: T.inkFaint,
+    letterSpacing: 0.8,
+    flexShrink: 1,
+  },
+
+  position: {
+    fontSize: 12,
+    color: T.inkSoft,
+    marginTop: 5,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+
+  // ==================== DETAILS ====================
   details: {
     marginTop: 14,
     paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    gap: 10,
+    borderTopColor: T.hair2,
+    gap: 12,
   },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
+  detailIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: '#FDECEC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   detailText: {
-    fontSize: 13,
-    color: '#4B5563',
+    fontSize: 12,
+    color: T.inkSoft,
     flex: 1,
-    fontWeight: '500',
+    fontWeight: '600',
   },
 
   actionRow: {
@@ -607,26 +844,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: PRIMARY,
-    paddingVertical: 10,
+    backgroundColor: T.crimson,
+    paddingVertical: 11,
     borderRadius: 10,
   },
   actionButtonText: {
     color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.4,
   },
   actionButtonAlt: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: PRIMARY,
+    backgroundColor: T.surface,
+    borderWidth: 1.5,
+    borderColor: T.crimson,
   },
   actionButtonTextAlt: {
-    color: PRIMARY,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    color: T.crimson,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.4,
   },
 })
 

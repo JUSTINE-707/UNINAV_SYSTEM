@@ -18,6 +18,36 @@ import { useSemester } from '../../context/SemesterContext'
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton'
 
 // ============================================================
+// DESIGN TOKENS
+// ============================================================
+
+const T = {
+  crimson: '#8B0000',
+  crimsonLight: '#A61B1B',
+  ink: '#0B0B0D',
+  inkSoft: '#3F3F46',
+  inkMuted: '#71717A',
+  inkFaint: '#A1A1AA',
+  hair: '#E7E7E9',
+  hair2: '#F1F1F3',
+  canvas: '#F2F2F4',
+  surface: '#FFFFFF',
+  green: '#0F7A4A',
+  greenSoft: '#ECFDF5',
+  amber: '#B45309',
+  amberSoft: '#FEF3C7',
+  red: '#9F1239',
+  redSoft: '#FCE7F3',
+  blue: '#1D4ED8',
+  blueSoft: '#DBEAFE',
+  slate: '#94A3B8',
+  slateSoft: '#F1F5F9',
+  // Featured highlight (was crimson)
+  navy: '#1E1B4B',
+  navyLight: '#312E81',
+}
+
+// ============================================================
 // CONSTANTS
 // ============================================================
 
@@ -33,35 +63,26 @@ const DAY_SHORT = {
   F: 'Fri', Sat: 'Sat', Sun: 'Sun',
 }
 
-// ------------------------------------------------------------
-// Student-facing cancellation reasons
-// ------------------------------------------------------------
-
 const STUDENT_REASON_LABELS = {
   official_duty: 'Your professor had an official university commitment.',
   medical: 'Your professor was on medical or sick leave.',
   emergency: 'Your professor had a personal emergency.',
   personal: 'Your professor was unavailable due to a personal matter.',
   other_prof: 'This class was cancelled by your professor.',
-
   class_cancelled: 'This class was cancelled.',
   no_students: 'No students attended, so the class did not push through.',
   room_unavailable: 'The assigned room was not available.',
   moved_online: 'This class was moved to an online session.',
-
   other: 'This class was cancelled.',
 }
 
 const buildCancelReason = (ghost) => {
   if (!ghost) return 'This class was cancelled.'
-
   const reason =
     STUDENT_REASON_LABELS[ghost.reason] ||
     STUDENT_REASON_LABELS[ghost.excused_reason] ||
     null
-
   if (reason) return reason
-
   const causeFallback = {
     professor: 'Your professor was not available.',
     students: 'No students attended.',
@@ -69,7 +90,6 @@ const buildCancelReason = (ghost) => {
     admin: 'The class was moved or cancelled by the administration.',
     other: 'This class was cancelled.',
   }
-
   return causeFallback[ghost.cause] || 'This class was cancelled.'
 }
 
@@ -106,18 +126,12 @@ const getWeekRange = () => {
   const now = new Date()
   const dow = now.getDay()
   const diffToMonday = dow === 0 ? -6 : 1 - dow
-
   const monday = new Date(now)
   monday.setDate(now.getDate() + diffToMonday)
   monday.setHours(0, 0, 0, 0)
-
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6)
-
-  return {
-    start: toLocalDateString(monday),
-    end: toLocalDateString(sunday),
-  }
+  return { start: toLocalDateString(monday), end: toLocalDateString(sunday) }
 }
 
 const formatTime = (time) => {
@@ -241,13 +255,25 @@ const getLiveStatus = (cls, nowMin) => {
 
 const stateAccent = (state) => {
   switch (state) {
-    case 'occupied': return '#059669'
-    case 'vacant': return '#D97706'
-    case 'online': return '#3B82F6'
-    case 'cancelled': return '#B00020'
-    case 'ended': return '#9CA3AF'
-    case 'upcoming': return '#8B0000'
-    default: return '#9CA3AF'
+    case 'occupied': return T.green
+    case 'vacant': return T.amber
+    case 'online': return T.blue
+    case 'cancelled': return T.red
+    case 'ended': return T.slate
+    case 'upcoming': return T.crimson
+    default: return T.slate
+  }
+}
+
+const stateSoftBg = (state) => {
+  switch (state) {
+    case 'occupied': return T.greenSoft
+    case 'vacant': return T.amberSoft
+    case 'online': return T.blueSoft
+    case 'cancelled': return T.redSoft
+    case 'ended': return T.slateSoft
+    case 'upcoming': return '#FDECEC'
+    default: return T.slateSoft
   }
 }
 
@@ -271,10 +297,7 @@ const StudentScheduleScreen = () => {
   const [classes, setClasses] = useState([])
   const [errorMessage, setErrorMessage] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
-
   const [selectedDay, setSelectedDay] = useState(() => getTodayCode())
-
-  // Modal
   const [detailClass, setDetailClass] = useState(null)
 
   const listRef = useRef(null)
@@ -313,9 +336,7 @@ const StudentScheduleScreen = () => {
       }
 
       if (!rosterRow) {
-        setErrorMessage(
-          'Your roster record was not found. Please contact the admin.'
-        )
+        setErrorMessage('Your roster record was not found. Please contact the admin.')
         return
       }
 
@@ -642,16 +663,18 @@ const StudentScheduleScreen = () => {
   }
 
   // ============================================================
-  // NO SEMESTER
+  // NO SEMESTER / NO CLASSES
   // ============================================================
 
   if (!semester) {
     return (
       <View style={styles.center}>
         <View style={styles.emptyIconWrap}>
-          <Text style={styles.emptyIcon}>📚</Text>
+          <View style={styles.emptyIconRing} />
+          <View style={styles.emptyIconDot} />
         </View>
-        <Text style={styles.emptyTitle}>No active semester</Text>
+        <Text style={styles.emptyEyebrow}>NO SEMESTER</Text>
+        <Text style={styles.emptyTitle}>Nothing scheduled</Text>
         <Text style={styles.emptyText}>
           There's no semester open right now. Please contact your program chair
           or the admin.
@@ -660,17 +683,15 @@ const StudentScheduleScreen = () => {
     )
   }
 
-  // ============================================================
-  // NO CLASSES
-  // ============================================================
-
   if (classes.length === 0) {
     return (
       <View style={styles.center}>
         <View style={styles.emptyIconWrap}>
-          <Text style={styles.emptyIcon}>📭</Text>
+          <View style={styles.emptyIconRing} />
+          <View style={styles.emptyIconDot} />
         </View>
-        <Text style={styles.emptyTitle}>No classes yet</Text>
+        <Text style={styles.emptyEyebrow}>NO CLASSES</Text>
+        <Text style={styles.emptyTitle}>No enrollment records</Text>
         <Text style={styles.emptyText}>
           No enrollment records found for {semester.name}. Check with your
           program chair or academic office.
@@ -698,23 +719,50 @@ const StudentScheduleScreen = () => {
 
         ListHeaderComponent={
           <View>
-            <View style={styles.hero}>
-              <Text style={styles.heroEyebrow}>MY SCHEDULE</Text>
-              <Text style={styles.heroDate}>{getTodayLabel()}</Text>
-              {semester && (
-                <Text style={styles.heroSemester}>{semester.name}</Text>
-              )}
-              <View style={styles.statsRow}>
-                <Stat label="Classes" value={stats.classes} />
-                <View style={styles.statDivider} />
-                <Stat label="Subjects" value={stats.subjects} />
-                <View style={styles.statDivider} />
-                <Stat label="Hours" value={stats.hours} />
-                <View style={styles.statDivider} />
-                <Stat label="Rooms" value={stats.rooms} />
+            {/* ==================== RED HEADER ==================== */}
+            <View style={styles.header}>
+              <View style={styles.headerDecor1} />
+              <View style={styles.headerDecor2} />
+
+              <View style={styles.headerContent}>
+                <View style={styles.headerTopRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.headerEyebrow}>STUDENT PORTAL</Text>
+                    <Text style={styles.headerTitle}>My Schedule</Text>
+                  </View>
+
+                  <View style={styles.headerBadge}>
+                    <Text style={styles.headerBadgeText}>
+                      {stats.classes} {stats.classes === 1 ? 'CLASS' : 'CLASSES'}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.headerDate}>{getTodayLabel()}</Text>
+
+                {semester && (
+                  <View style={styles.headerSemesterRow}>
+                    <View style={styles.headerSemesterDot} />
+                    <Text style={styles.headerSemesterText} numberOfLines={1}>
+                      {semester.name}
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
 
+            {/* ==================== STATS STRIP ==================== */}
+            <View style={styles.statsStrip}>
+              <Stat label="CLASSES" value={stats.classes} />
+              <View style={styles.statDivider} />
+              <Stat label="SUBJECTS" value={stats.subjects} />
+              <View style={styles.statDivider} />
+              <Stat label="HOURS" value={stats.hours} />
+              <View style={styles.statDivider} />
+              <Stat label="ROOMS" value={stats.rooms} />
+            </View>
+
+            {/* ==================== UP NEXT SPOTLIGHT (NAVY) ==================== */}
             {nextClass && nextLive && (
               <View style={styles.spotlight}>
                 <View style={styles.spotlightTop}>
@@ -735,24 +783,26 @@ const StudentScheduleScreen = () => {
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.spotlightSubject}>{nextClass.subject_code}</Text>
+                <Text style={styles.spotlightSubject} numberOfLines={1}>
+                  {nextClass.subject_code}
+                </Text>
                 <Text style={styles.spotlightTitle} numberOfLines={2}>
                   {nextClass.course_title}
                 </Text>
 
-                <View style={styles.spotlightMetaRow}>
-                  <Text style={styles.spotlightMeta}>
-                    🕐  {formatTime(nextClass.start_time)} – {formatTime(nextClass.end_time)}
+                <View style={styles.spotlightMeta}>
+                  <Text style={styles.spotlightMetaText}>
+                    {formatTime(nextClass.start_time)} – {formatTime(nextClass.end_time)}
+                  </Text>
+                  <Text style={styles.spotlightMetaDivider}>·</Text>
+                  <Text style={styles.spotlightMetaText} numberOfLines={1}>
+                    {nextClass.room_name || 'Not assigned'}
                   </Text>
                 </View>
-                <View style={styles.spotlightMetaRow}>
-                  <Text style={styles.spotlightMeta}>
-                    📍  {nextClass.room_name || 'Not assigned'}
-                  </Text>
-                </View>
-                <View style={styles.spotlightMetaRow}>
-                  <Text style={styles.spotlightMeta}>
-                    👤  {nextClass.professor_name || 'Not assigned'}
+
+                <View style={styles.spotlightMeta}>
+                  <Text style={styles.spotlightMetaText} numberOfLines={1}>
+                    {nextClass.professor_name || 'Professor not assigned'}
                   </Text>
                 </View>
 
@@ -765,12 +815,14 @@ const StudentScheduleScreen = () => {
                   <Text style={styles.spotlightStatusHeadline}>
                     {nextLive.icon}  {nextLive.headline}
                   </Text>
-                  <Text style={styles.spotlightStatusSub}>{nextLive.subline}</Text>
+                  <Text style={styles.spotlightStatusSub} numberOfLines={3}>
+                    {nextLive.subline}
+                  </Text>
                 </View>
 
                 <TouchableOpacity
                   onPress={() => setDetailClass(nextClass)}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                   style={styles.spotlightRouteButton}
                 >
                   <Text style={styles.spotlightRouteButtonText}>
@@ -780,6 +832,7 @@ const StudentScheduleScreen = () => {
               </View>
             )}
 
+            {/* ==================== DAY STRIP ==================== */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -838,15 +891,15 @@ const StudentScheduleScreen = () => {
           const status = getClassStatus(item, todayCode)
           const live = getLiveStatus(item, nowMin)
           const isGhost = !!item.ghostReport
+          const online = isOnlineRoom(item.room_name)
 
           const accent =
-            isGhost ? '#B00020'
-            : status === 'now' ? '#059669'
-            : status === 'soon' ? '#D97706'
-            : status === 'next' && section.isToday ? '#8B0000'
-            : '#9CA3AF'
-
-          const online = isOnlineRoom(item.room_name)
+            isGhost ? T.red
+            : online ? T.blue
+            : status === 'now' ? T.green
+            : status === 'soon' ? T.amber
+            : status === 'next' && section.isToday ? T.crimson
+            : T.slate
 
           return (
             <View style={styles.row}>
@@ -854,8 +907,10 @@ const StudentScheduleScreen = () => {
                 <Text style={styles.railTime}>
                   {formatTime(item.start_time).replace(' ', '\n')}
                 </Text>
-                <View style={[styles.railDot, { backgroundColor: accent }]} />
-                <View style={[styles.railLine, { backgroundColor: accent + '40' }]} />
+                <View style={styles.railNode}>
+                  <View style={[styles.railDot, { backgroundColor: accent }]} />
+                </View>
+                <View style={[styles.railLine, { backgroundColor: accent + '30' }]} />
               </View>
 
               <TouchableOpacity
@@ -864,7 +919,6 @@ const StudentScheduleScreen = () => {
                 style={[
                   styles.card,
                   section.isToday && styles.cardToday,
-                  online && styles.cardOnline,
                   isGhost && styles.cardGhost,
                 ]}
               >
@@ -872,31 +926,41 @@ const StudentScheduleScreen = () => {
 
                 <View style={styles.cardBody}>
                   <View style={styles.cardHeaderRow}>
-                    <Text style={styles.subject}>{item.subject_code}</Text>
+                    <Text style={styles.subject} numberOfLines={1}>
+                      {item.subject_code}
+                    </Text>
 
-                    {isGhost ? (
-                      <View style={styles.badgeCancelled}>
-                        <Text style={styles.badgeCancelledText}>CANCELLED</Text>
-                      </View>
-                    ) : (
-                      <>
-                        {status === 'now' && (
-                          <View style={styles.badgeNow}>
-                            <Text style={styles.badgeNowText}>NOW</Text>
-                          </View>
-                        )}
-                        {status === 'soon' && (
-                          <View style={styles.badgeSoon}>
-                            <Text style={styles.badgeSoonText}>SOON</Text>
-                          </View>
-                        )}
-                        {status === 'done' && (
-                          <View style={styles.badgeDone}>
-                            <Text style={styles.badgeDoneText}>DONE</Text>
-                          </View>
-                        )}
-                      </>
-                    )}
+                    <View style={styles.tagRow}>
+                      {online && !isGhost && (
+                        <View style={[styles.tag, { backgroundColor: T.blueSoft }]}>
+                          <Text style={[styles.tagText, { color: T.blue }]}>ONLINE</Text>
+                        </View>
+                      )}
+
+                      {isGhost ? (
+                        <View style={[styles.tag, { backgroundColor: T.redSoft }]}>
+                          <Text style={[styles.tagText, { color: T.red }]}>CANCELLED</Text>
+                        </View>
+                      ) : (
+                        <>
+                          {status === 'now' && (
+                            <View style={[styles.tag, { backgroundColor: T.greenSoft }]}>
+                              <Text style={[styles.tagText, { color: T.green }]}>NOW</Text>
+                            </View>
+                          )}
+                          {status === 'soon' && (
+                            <View style={[styles.tag, { backgroundColor: T.amberSoft }]}>
+                              <Text style={[styles.tagText, { color: T.amber }]}>SOON</Text>
+                            </View>
+                          )}
+                          {status === 'done' && (
+                            <View style={[styles.tag, { backgroundColor: T.slateSoft }]}>
+                              <Text style={[styles.tagText, { color: T.slate }]}>DONE</Text>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </View>
                   </View>
 
                   <Text
@@ -906,36 +970,37 @@ const StudentScheduleScreen = () => {
                     {item.course_title}
                   </Text>
 
-                  <Text style={[styles.time, isGhost && styles.timeGhost]}>
+                  <Text style={[styles.timeLine, isGhost && styles.timeGhost]} numberOfLines={1}>
                     {formatTime(item.start_time)} – {formatTime(item.end_time)}
                   </Text>
 
                   <View style={styles.metaRow}>
-                    <Text style={styles.metaIcon}>📍</Text>
+                    <Text style={styles.metaLabel}>ROOM</Text>
                     <Text
-                      style={[styles.metaText, isGhost && styles.metaTextGhost]}
+                      style={[styles.metaValue, isGhost && styles.metaValueGhost]}
                       numberOfLines={1}
                     >
-                      {item.room_name || 'Room not assigned'}
+                      {online ? 'Online' : item.room_name || '—'}
                     </Text>
                   </View>
 
                   <View style={styles.metaRow}>
-                    <Text style={styles.metaIcon}>👤</Text>
+                    <Text style={styles.metaLabel}>PROF</Text>
                     <Text
-                      style={[styles.metaText, isGhost && styles.metaTextGhost]}
+                      style={[styles.metaValue, isGhost && styles.metaValueGhost]}
                       numberOfLines={1}
                     >
-                      {item.professor_name || 'Professor not assigned'}
+                      {item.professor_name || '—'}
                     </Text>
                   </View>
 
-                  {/* Cancellation reason — single unified notice */}
                   {isGhost && (
                     <View style={styles.reasonChip}>
-                      <Text style={styles.reasonChipIcon}>📋</Text>
+                      <View style={styles.reasonChipStripe} />
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.reasonChipTitle}>Why is this cancelled?</Text>
+                        <Text style={styles.reasonChipTitle}>
+                          WHY IS THIS CANCELLED?
+                        </Text>
                         <Text style={styles.reasonChipText} numberOfLines={4}>
                           {buildCancelReason(item.ghostReport)}
                         </Text>
@@ -952,26 +1017,32 @@ const StudentScheduleScreen = () => {
                     </View>
                   )}
 
-                  {/* Live status — hidden for cancelled classes (reason already shown above) */}
                   {live && !isGhost && (
                     <View
                       style={[
                         styles.statusBlock,
-                        {
-                          borderLeftColor: stateAccent(live.roomState),
-                          backgroundColor: stateAccent(live.roomState) + '14',
-                        },
+                        { borderLeftColor: stateAccent(live.roomState) },
                       ]}
                     >
-                      <Text
+                      <View
                         style={[
-                          styles.statusHeadline,
-                          { color: stateAccent(live.roomState) },
+                          styles.statusDot,
+                          { backgroundColor: stateAccent(live.roomState) },
                         ]}
-                      >
-                        {live.icon}  {live.headline}
-                      </Text>
-                      <Text style={styles.statusSubline}>{live.subline}</Text>
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.statusHeadline,
+                            { color: stateAccent(live.roomState) },
+                          ]}
+                        >
+                          {live.headline}
+                        </Text>
+                        <Text style={styles.statusSubline} numberOfLines={2}>
+                          {live.subline}
+                        </Text>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -984,7 +1055,7 @@ const StudentScheduleScreen = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#8B0000"
+            tintColor="#FFFFFF"
           />
         }
       />
@@ -1013,7 +1084,7 @@ const StudentScheduleScreen = () => {
                   const live = getLiveStatus(detailClass, nowMin)
                   const isGhost = !!detailClass.ghostReport
                   const isOnline = isOnlineRoom(detailClass.room_name)
-                  const accent = live ? stateAccent(live.roomState) : '#9CA3AF'
+                  const accent = live ? stateAccent(live.roomState) : T.slate
                   const dayFull =
                     DAY_LABELS[detailClass.day] || detailClass.day || ''
 
@@ -1021,7 +1092,6 @@ const StudentScheduleScreen = () => {
 
                   return (
                     <>
-                      {/* HEADER */}
                       <View style={styles.modalHeader}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
@@ -1041,54 +1111,48 @@ const StudentScheduleScreen = () => {
                         </TouchableOpacity>
                       </View>
 
-                      {/* BADGES */}
                       <View style={styles.modalBadgesRow}>
-                        {isGhost ? (
-                          <View
-                            style={[styles.modalBadge, styles.modalBadgeCancelled]}
-                          >
-                            <Text
-                              style={[
-                                styles.modalBadgeText,
-                                styles.modalBadgeTextCancelled,
-                              ]}
-                            >
-                              ! CANCELLED
-                            </Text>
-                          </View>
-                        ) : (
+                        {!isGhost && (
                           <View
                             style={[
                               styles.modalBadge,
                               isOnline
-                                ? styles.modalBadgeOnline
-                                : styles.modalBadgeF2F,
+                                ? { backgroundColor: T.blueSoft }
+                                : { backgroundColor: T.amberSoft },
                             ]}
                           >
                             <Text
                               style={[
                                 styles.modalBadgeText,
-                                isOnline
-                                  ? styles.modalBadgeTextOnline
-                                  : styles.modalBadgeTextF2F,
+                                { color: isOnline ? T.blue : T.amber },
                               ]}
                             >
-                              {isOnline
-                                ? '🌐 ONLINE'
-                                : '● FACE-TO-FACE'}
+                              {isOnline ? 'ONLINE' : 'FACE-TO-FACE'}
                             </Text>
                           </View>
                         )}
 
                         {live && (
-                          <View style={styles.modalStatusPill}>
+                          <View
+                            style={[
+                              styles.modalStatusPill,
+                              { backgroundColor: stateSoftBg(live.roomState) },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.modalStatusPillDot,
+                                { backgroundColor: accent },
+                              ]}
+                            />
                             <Text
                               style={[
                                 styles.modalStatusPillText,
                                 { color: accent },
                               ]}
+                              numberOfLines={1}
                             >
-                              ● {live.headline}
+                              {live.headline}
                             </Text>
                           </View>
                         )}
@@ -1102,57 +1166,38 @@ const StudentScheduleScreen = () => {
                         )}
                       </View>
 
-                      {/* INFO GRID */}
                       <View style={styles.modalGrid}>
                         <View style={styles.modalGridItem}>
                           <Text style={styles.modalGridLabel}>PROFESSOR</Text>
-                          <Text
-                            style={styles.modalGridValue}
-                            numberOfLines={1}
-                          >
+                          <Text style={styles.modalGridValue} numberOfLines={1}>
                             {detailClass.professor_name || '—'}
                           </Text>
                         </View>
                         <View style={styles.modalGridItem}>
                           <Text style={styles.modalGridLabel}>ROOM</Text>
-                          <Text
-                            style={styles.modalGridValue}
-                            numberOfLines={1}
-                          >
-                            {isOnline
-                              ? 'Online'
-                              : detailClass.room_name || '—'}
+                          <Text style={styles.modalGridValue} numberOfLines={1}>
+                            {isOnline ? 'Online' : detailClass.room_name || '—'}
                           </Text>
                         </View>
                         <View style={styles.modalGridItem}>
                           <Text style={styles.modalGridLabel}>START</Text>
-                          <Text
-                            style={styles.modalGridValue}
-                            numberOfLines={1}
-                          >
+                          <Text style={styles.modalGridValue} numberOfLines={1}>
                             {formatTime(detailClass.start_time)}
                           </Text>
                         </View>
                         <View style={styles.modalGridItem}>
                           <Text style={styles.modalGridLabel}>END</Text>
-                          <Text
-                            style={styles.modalGridValue}
-                            numberOfLines={1}
-                          >
+                          <Text style={styles.modalGridValue} numberOfLines={1}>
                             {formatTime(detailClass.end_time)}
                           </Text>
                         </View>
                       </View>
 
-                      {/* UNIFIED STATUS BLOCK — cancellation reason folded in */}
                       {live && (
                         <View
                           style={[
                             styles.modalLiveBlock,
-                            {
-                              borderLeftColor: accent,
-                              backgroundColor: accent + '14',
-                            },
+                            { borderLeftColor: accent },
                           ]}
                         >
                           <View style={styles.modalLiveHeader}>
@@ -1168,10 +1213,7 @@ const StudentScheduleScreen = () => {
                             </Text>
                             {!isGhost && detailClass.liveSession?.scanned_at && (
                               <Text
-                                style={[
-                                  styles.modalLiveTime,
-                                  { color: accent },
-                                ]}
+                                style={[styles.modalLiveTime, { color: accent }]}
                               >
                                 {formatVerifiedTime(
                                   detailClass.liveSession.scanned_at
@@ -1188,7 +1230,6 @@ const StudentScheduleScreen = () => {
                         </View>
                       )}
 
-                      {/* PROFESSOR NOTE */}
                       {isGhost && !!detailClass.ghostReport?.notes && (
                         <View style={styles.modalNotesBox}>
                           <Text style={styles.modalNotesLabel}>
@@ -1200,7 +1241,6 @@ const StudentScheduleScreen = () => {
                         </View>
                       )}
 
-                      {/* ACTIONS */}
                       <View style={styles.modalActions}>
                         {canViewRoute && (
                           <TouchableOpacity
@@ -1249,20 +1289,27 @@ const StudentScheduleScreen = () => {
 
 const StudentScheduleSkeleton = () => (
   <View style={styles.container}>
-    <View style={styles.content}>
-      <View style={styles.hero}>
-        <Skeleton width={90} height={11} radius={4} />
-        <Skeleton width="75%" height={26} radius={6} style={{ marginTop: 10 }} />
-        <Skeleton width={140} height={12} radius={4} style={{ marginTop: 8 }} />
-
-        <View style={styles.statsRow}>
-          {[1, 2, 3, 4].map((i) => (
-            <View key={i} style={styles.stat}>
-              <Skeleton width={34} height={22} radius={6} />
-              <Skeleton width={52} height={9} radius={3} style={{ marginTop: 8 }} />
-            </View>
-          ))}
+    <View style={styles.header}>
+      <View style={styles.headerContent}>
+        <View style={styles.headerTopRow}>
+          <View style={{ flex: 1, gap: 6 }}>
+            <Skeleton width={80} height={9} radius={3} />
+            <Skeleton width={140} height={20} radius={4} />
+          </View>
+          <Skeleton width={80} height={24} radius={999} />
         </View>
+        <Skeleton width={200} height={13} radius={3} style={{ marginTop: 14 }} />
+      </View>
+    </View>
+
+    <View style={styles.content}>
+      <View style={styles.statsStrip}>
+        {[1, 2, 3, 4].map((i) => (
+          <View key={i} style={styles.stat}>
+            <Skeleton width={34} height={22} radius={6} />
+            <Skeleton width={52} height={9} radius={3} style={{ marginTop: 8 }} />
+          </View>
+        ))}
       </View>
 
       <View style={styles.spotlight}>
@@ -1374,192 +1421,594 @@ const Stat = ({ label, value }) => (
 // ============================================================
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F7' },
-  content: { padding: 20, paddingBottom: 60 },
+  container: { flex: 1, backgroundColor: T.canvas },
+  content: { paddingHorizontal: 20, paddingBottom: 60 },
 
   center: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 30, backgroundColor: '#F5F5F7',
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 34,
+    backgroundColor: T.canvas,
   },
-  loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14, fontWeight: '500' },
 
   errorIconWrap: {
     width: 60, height: 60, borderRadius: 30,
-    backgroundColor: '#FDECEC', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FDECEC',
+    alignItems: 'center', justifyContent: 'center',
     marginBottom: 16,
   },
-  errorIcon: { fontSize: 28, fontWeight: '700', color: '#8B0000' },
-  errorTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginBottom: 8, textAlign: 'center' },
-  errorText: { fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 20 },
+  errorIcon: { fontSize: 28, fontWeight: '900', color: T.crimson },
+  errorTitle: {
+    fontSize: 20, fontWeight: '900', color: T.ink,
+    marginBottom: 8, textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 14, color: T.inkMuted,
+    textAlign: 'center', lineHeight: 20,
+  },
 
   emptyIconWrap: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 16,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 2,
+    width: 84, height: 84, borderRadius: 42,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 22,
   },
-  emptyIcon: { fontSize: 32 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
-  emptyText: { fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 20, paddingHorizontal: 20 },
+  emptyIconRing: {
+    position: 'absolute',
+    width: 44, height: 44, borderRadius: 22,
+    borderWidth: 2,
+    borderColor: T.crimson,
+    opacity: 0.35,
+  },
+  emptyIconDot: {
+    width: 12, height: 12, borderRadius: 6,
+    backgroundColor: T.crimson,
+  },
+  emptyEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.crimson,
+    marginBottom: 8,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+    marginBottom: 10,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: T.inkMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 20,
+  },
 
-  hero: { marginBottom: 20 },
-  heroEyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, color: '#8B0000', marginBottom: 4 },
-  heroDate: { fontSize: 24, fontWeight: '700', color: '#1A1A1A', marginBottom: 4, letterSpacing: -0.3 },
-  heroSemester: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
-    marginBottom: 20,
+  // ==================== RED HEADER ====================
+  header: {
+    backgroundColor: T.crimson,
+    paddingTop: 58,
+    paddingBottom: 62,
+    overflow: 'hidden',
+    marginHorizontal: -20,
+    paddingHorizontal: 22,
+  },
+  headerDecor1: {
+    position: 'absolute',
+    top: -80,
+    right: -60,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: T.crimsonLight,
+    opacity: 0.35,
+  },
+  headerDecor2: {
+    position: 'absolute',
+    top: 40,
+    right: 40,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFFFFF',
+    opacity: 0.06,
+  },
+  headerContent: {},
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#FFFFFF',
+    opacity: 0.65,
+    marginBottom: 5,
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+  headerBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
+  },
+  headerBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    color: '#FFFFFF',
+  },
+  headerDate: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    opacity: 0.9,
+    marginTop: 16,
     letterSpacing: 0.2,
   },
+  headerSemesterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    gap: 7,
+  },
+  headerSemesterDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7CFC9E',
+  },
+  headerSemesterText: {
+    fontSize: 10,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
 
-  statsRow: {
-    flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16,
-    paddingVertical: 14, paddingHorizontal: 8,
-    borderWidth: 1, borderColor: '#ECECEC',
-    shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  // ==================== STATS STRIP ====================
+  statsStrip: {
+    flexDirection: 'row',
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: T.hair,
+    marginTop: -22,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
   stat: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 20, fontWeight: '700', color: '#1A1A1A' },
-  statLabel: { fontSize: 11, fontWeight: '600', color: '#9CA3AF', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.6 },
-  statDivider: { width: 1, backgroundColor: '#ECECEC', marginVertical: 6 },
+  statValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.4,
+    fontVariant: ['tabular-nums'],
+  },
+  statLabel: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: T.inkFaint,
+    marginTop: 3,
+    letterSpacing: 1.4,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: T.hair2,
+    marginVertical: 8,
+  },
 
+  // ==================== SPOTLIGHT (NAVY) ====================
   spotlight: {
-    backgroundColor: '#8B0000', borderRadius: 20, padding: 20,
-    marginTop: 20, marginBottom: 24,
-    shadowColor: '#8B0000', shadowOpacity: 0.25, shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 }, elevation: 5,
+    backgroundColor: T.navy,
+    borderRadius: 20,
+    padding: 20,
+    marginTop: 22,
+    marginBottom: 24,
+    shadowColor: T.navy,
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
+    overflow: 'hidden',
   },
   spotlightTop: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
   },
-  spotlightLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: '#FFD5D5' },
+  spotlightLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2.2,
+    color: '#C7D2FE',
+  },
   spotlightDayPill: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
-    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  spotlightDayPillPressed: { backgroundColor: 'rgba(255,255,255,0.34)' },
-  spotlightDayText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
-  spotlightDayChevron: { color: '#FFD5D5', fontSize: 14, fontWeight: '700', marginTop: -2 },
+  spotlightDayPillPressed: {
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  spotlightDayText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  spotlightDayChevron: {
+    color: '#C7D2FE',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: -2,
+  },
 
-  spotlightSubject: { fontSize: 14, fontWeight: '700', color: '#FFD5D5', marginBottom: 4 },
-  spotlightTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginBottom: 14, lineHeight: 26 },
-  spotlightMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  spotlightMeta: { color: '#FFE8E8', fontSize: 13, fontWeight: '500' },
+  spotlightSubject: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.6,
+    marginBottom: 4,
+  },
+  spotlightTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#E0E7FF',
+    marginBottom: 14,
+    lineHeight: 21,
+  },
+  spotlightMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    flexWrap: 'wrap',
+  },
+  spotlightMetaText: {
+    color: '#E0E7FF',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+  },
+  spotlightMetaDivider: {
+    color: '#C7D2FE',
+    marginHorizontal: 6,
+    fontSize: 12,
+    opacity: 0.7,
+  },
 
   spotlightStatusBlock: {
     marginTop: 16,
-    paddingLeft: 14, paddingVertical: 12, paddingRight: 12,
-    borderLeftWidth: 4,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 10,
+    paddingLeft: 12,
+    paddingVertical: 4,
+    borderLeftWidth: 3,
   },
-  spotlightStatusHeadline: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
-  spotlightStatusSub: { color: '#FFE8E8', fontSize: 12, marginTop: 4, fontWeight: '500' },
+  spotlightStatusHeadline: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  spotlightStatusSub: {
+    color: '#E0E7FF',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
+    lineHeight: 17,
+  },
 
   spotlightRouteButton: {
-    marginTop: 16, paddingVertical: 12, borderRadius: 12,
-    backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
+    marginTop: 18,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  spotlightRouteButtonText: { color: '#8B0000', fontSize: 14, fontWeight: '800', letterSpacing: 0.3 },
+  spotlightRouteButtonText: {
+    color: T.navy,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
 
-  dayStrip: { gap: 8, paddingVertical: 4, marginBottom: 8 },
-  dayChip: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
-    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#ECECEC',
-    marginRight: 8, flexDirection: 'row', alignItems: 'center', gap: 6,
+  // ==================== DAY STRIP ====================
+  dayStrip: {
+    gap: 8,
+    paddingVertical: 4,
+    marginBottom: 8,
   },
-  dayChipSelected: { backgroundColor: '#8B0000', borderColor: '#8B0000' },
-  dayChipTodayOutline: { borderColor: '#F3C6C6', backgroundColor: '#FFF5F5' },
-  dayChipText: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
-  dayChipTextSelected: { color: '#FFFFFF' },
-  todayIndicator: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#8B0000' },
+  dayChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    marginRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dayChipSelected: {
+    backgroundColor: T.crimson,
+    borderColor: T.crimson,
+  },
+  dayChipTodayOutline: {
+    borderColor: '#F3C6C6',
+    backgroundColor: '#FFF5F5',
+  },
+  dayChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: T.inkSoft,
+    letterSpacing: 0.2,
+  },
+  dayChipTextSelected: {
+    color: '#FFFFFF',
+  },
+  todayIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: T.crimson,
+  },
 
   sectionListHeading: {
-    fontSize: 13, fontWeight: '700', color: '#9CA3AF',
-    textTransform: 'uppercase', letterSpacing: 1,
-    marginTop: 20, marginBottom: 8,
+    fontSize: 10,
+    fontWeight: '900',
+    color: T.inkFaint,
+    letterSpacing: 2.2,
+    marginTop: 22,
+    marginBottom: 8,
   },
-  sectionHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    marginTop: 20, marginBottom: 12,
-  },
-  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  sectionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#C7C7C7', marginRight: 10 },
-  sectionDotToday: { backgroundColor: '#8B0000' },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
-  sectionTitleToday: { color: '#8B0000' },
-  todayBadge: {
-    backgroundColor: '#FDECEC', paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: 6, marginRight: 10,
-  },
-  todayBadgeText: { color: '#8B0000', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
-  sectionCount: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
 
-  row: { flexDirection: 'row', marginBottom: 4 },
-  rail: { width: 56, alignItems: 'center', paddingTop: 2 },
-  railTime: { fontSize: 10, fontWeight: '700', color: '#6B7280', textAlign: 'center', marginBottom: 6, lineHeight: 12 },
-  railDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#9CA3AF' },
-  railLine: { width: 2, flex: 1, marginTop: 4, borderRadius: 1 },
+  // ==================== SECTION HEADER ====================
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 12,
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  sectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#C7C7C7',
+    marginRight: 10,
+  },
+  sectionDotToday: {
+    backgroundColor: T.crimson,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.3,
+  },
+  sectionTitleToday: {
+    color: T.crimson,
+  },
+  todayBadge: {
+    backgroundColor: '#FDECEC',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginRight: 10,
+  },
+  todayBadgeText: {
+    color: T.crimson,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  sectionCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.inkFaint,
+    letterSpacing: 0.3,
+  },
+
+  // ==================== CLASS ROW ====================
+  row: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  rail: {
+    width: 56,
+    alignItems: 'center',
+    paddingTop: 4,
+  },
+  railTime: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: T.ink,
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 12,
+    letterSpacing: -0.2,
+  },
+  railNode: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: T.surface,
+    borderWidth: 2,
+    borderColor: T.hair,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  railDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  railLine: {
+    width: 2,
+    flex: 1,
+    marginTop: 4,
+    borderRadius: 1,
+  },
 
   card: {
-    flex: 1, flexDirection: 'row', backgroundColor: '#FFFFFF',
-    borderRadius: 16, marginBottom: 16, overflow: 'hidden',
-    borderWidth: 1, borderColor: '#ECECEC',
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 }, elevation: 2,
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: T.surface,
+    borderRadius: 14,
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: T.hair,
   },
-  cardToday: { borderColor: '#F3C6C6', shadowColor: '#8B0000', shadowOpacity: 0.08 },
-  cardOnline: { opacity: 0.9 },
-  cardGhost: { opacity: 0.94, borderColor: '#F5C2C0', borderStyle: 'dashed' },
-  cardAccent: { width: 4 },
-  cardBody: { flex: 1, padding: 14 },
+  cardToday: {
+    borderColor: '#F3C6C6',
+  },
+  cardGhost: {
+    opacity: 0.9,
+  },
+  cardAccent: {
+    width: 3,
+  },
+  cardBody: {
+    flex: 1,
+    padding: 14,
+  },
 
   cardHeaderRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 6,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
   },
-  subject: { fontSize: 13, fontWeight: '800', color: '#8B0000', letterSpacing: 0.3 },
-  title: { fontSize: 15, fontWeight: '600', color: '#1A1A1A', lineHeight: 20, marginBottom: 8 },
-  titleGhost: { color: '#6B7280', textDecorationLine: 'line-through' },
-  time: { fontSize: 13, fontWeight: '500', color: '#4B5563', marginBottom: 8 },
-  timeGhost: { color: '#9CA3AF', textDecorationLine: 'line-through' },
+  subject: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: T.crimson,
+    letterSpacing: 0.3,
+    flexShrink: 1,
+  },
+  tagRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  tag: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  tagText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
 
-  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
-  metaIcon: { fontSize: 12, marginRight: 6, width: 16 },
-  metaText: { fontSize: 12, color: '#6B7280', flex: 1 },
-  metaTextGhost: { color: '#9CA3AF' },
+  title: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: T.ink,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  titleGhost: {
+    color: T.inkMuted,
+    textDecorationLine: 'line-through',
+  },
+  timeLine: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: T.inkSoft,
+    marginBottom: 10,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.1,
+  },
+  timeGhost: {
+    color: T.inkFaint,
+    textDecorationLine: 'line-through',
+  },
+
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    gap: 8,
+  },
+  metaLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
+    width: 36,
+  },
+  metaValue: {
+    fontSize: 12,
+    color: T.inkSoft,
+    flex: 1,
+    fontWeight: '600',
+  },
+  metaValueGhost: {
+    color: T.inkFaint,
+  },
 
   reasonChip: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
     marginTop: 12,
-    paddingHorizontal: 12,
+    paddingRight: 12,
     paddingVertical: 12,
-    backgroundColor: '#FDECEC',
+    backgroundColor: T.redSoft,
     borderRadius: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#B00020',
+    overflow: 'hidden',
   },
-  reasonChipIcon: { fontSize: 16, marginTop: 1 },
+  reasonChipStripe: {
+    width: 3,
+    backgroundColor: T.red,
+    marginRight: 10,
+  },
   reasonChipTitle: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 0.6,
+    letterSpacing: 1.2,
     color: '#7A0014',
     marginBottom: 4,
-    textTransform: 'uppercase',
   },
   reasonChipText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#7A0014',
-    lineHeight: 18,
+    lineHeight: 17,
   },
 
   notesBox: {
@@ -1572,12 +2021,11 @@ const styles = StyleSheet.create({
     borderLeftColor: '#C77700',
   },
   notesLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
     color: '#8A4B00',
-    marginBottom: 3,
-    textTransform: 'uppercase',
+    marginBottom: 4,
   },
   notesText: {
     fontSize: 12,
@@ -1587,20 +2035,31 @@ const styles = StyleSheet.create({
   },
 
   statusBlock: {
-    marginTop: 12, paddingVertical: 12, paddingHorizontal: 14,
-    borderLeftWidth: 4, borderRadius: 10,
+    flexDirection: 'row',
+    marginTop: 12,
+    paddingLeft: 12,
+    paddingVertical: 10,
+    borderLeftWidth: 3,
+    gap: 10,
   },
-  statusHeadline: { fontSize: 14, fontWeight: '900', letterSpacing: 0.4 },
-  statusSubline: { fontSize: 12, color: '#4B5563', marginTop: 4, fontWeight: '500' },
-
-  badgeNow: { backgroundColor: '#ECFDF5', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeNowText: { color: '#059669', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
-  badgeSoon: { backgroundColor: '#FFFBEB', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeSoonText: { color: '#D97706', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
-  badgeDone: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeDoneText: { color: '#9CA3AF', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
-  badgeCancelled: { backgroundColor: '#FDECEC', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeCancelledText: { color: '#B00020', fontSize: 10, fontWeight: '900', letterSpacing: 0.6 },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 5,
+  },
+  statusHeadline: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginBottom: 3,
+  },
+  statusSubline: {
+    fontSize: 11,
+    color: T.inkMuted,
+    fontWeight: '500',
+    lineHeight: 15,
+  },
 
   // ============================================================
   // MODAL
@@ -1611,17 +2070,12 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: T.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingTop: 8,
     maxHeight: '92%',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 20,
   },
   modalScrollContent: {
     paddingHorizontal: 22,
@@ -1630,9 +2084,9 @@ const styles = StyleSheet.create({
   modalGrabber: {
     alignSelf: 'center',
     width: 44,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#D1D5DB',
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D4D4D8',
     marginBottom: 16,
   },
   modalHeader: {
@@ -1642,22 +2096,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalEyebrow: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1.5,
-    color: '#8B0000',
-    marginBottom: 4,
+    letterSpacing: 2,
+    color: T.crimson,
+    marginBottom: 5,
   },
   modalSubject: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '900',
-    color: '#1A1A1A',
-    letterSpacing: -0.4,
+    color: T.ink,
+    letterSpacing: -0.6,
   },
   modalTitle: {
     fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '600',
+    color: T.inkMuted,
+    fontWeight: '500',
     marginTop: 4,
     lineHeight: 19,
   },
@@ -1665,17 +2119,16 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F5F5F7',
+    backgroundColor: T.hair2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalCloseText: {
-    fontSize: 15,
-    color: '#6B7280',
+    fontSize: 14,
+    color: T.inkSoft,
     fontWeight: '700',
     lineHeight: 16,
   },
-
   modalBadgesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1683,69 +2136,79 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
-  modalBadgeF2F: { backgroundColor: '#FEF3C7' },
-  modalBadgeOnline: { backgroundColor: '#DBEAFE' },
-  modalBadgeCancelled: { backgroundColor: '#FDECEC' },
-  modalBadgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.4 },
-  modalBadgeTextF2F: { color: '#C77700' },
-  modalBadgeTextOnline: { color: '#1E88E5' },
-  modalBadgeTextCancelled: { color: '#B00020' },
+  modalBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
   modalStatusPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    gap: 6,
+    maxWidth: '100%',
+  },
+  modalStatusPillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   modalStatusPillText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 0.4,
+    letterSpacing: 0.6,
+    flexShrink: 1,
   },
   modalDayPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F7',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: T.hair2,
   },
   modalDayPillText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.4,
-    color: '#4B5563',
+    color: T.inkSoft,
   },
-
   modalGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    backgroundColor: '#F7F5F2',
-    borderRadius: 14,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.hair,
     padding: 14,
     marginBottom: 16,
     gap: 4,
   },
-  modalGridItem: { width: '50%', paddingVertical: 6 },
+  modalGridItem: {
+    width: '50%',
+    paddingVertical: 6,
+  },
   modalGridLabel: {
     fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1,
-    color: '#9A9A9E',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
     marginBottom: 3,
   },
   modalGridValue: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#1A1A1A',
+    color: T.ink,
+    letterSpacing: -0.1,
   },
-
   modalLiveBlock: {
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderLeftWidth: 4,
-    borderRadius: 12,
+    paddingLeft: 12,
+    paddingVertical: 4,
+    borderLeftWidth: 3,
     marginBottom: 16,
   },
   modalLiveHeader: {
@@ -1753,28 +2216,36 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
+    gap: 8,
   },
-  modalLiveHeadline: { fontSize: 13, fontWeight: '900', letterSpacing: 0.3 },
-  modalLiveTime: { fontSize: 11, fontWeight: '800' },
+  modalLiveHeadline: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    flexShrink: 1,
+  },
+  modalLiveTime: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
   modalLiveSubline: {
     fontSize: 12,
-    color: '#4B5563',
+    color: T.inkSoft,
     fontWeight: '500',
     lineHeight: 17,
   },
-
   modalNotesBox: {
     backgroundColor: '#FFF8F0',
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
-    borderLeftWidth: 4,
+    borderLeftWidth: 3,
     borderLeftColor: '#C77700',
   },
   modalNotesLabel: {
     fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1,
+    letterSpacing: 1.2,
     color: '#8A4B00',
     marginBottom: 6,
   },
@@ -1784,7 +2255,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     lineHeight: 17,
   },
-
   modalActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1795,21 +2265,16 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '48%',
     minWidth: 140,
-    backgroundColor: '#8B0000',
+    backgroundColor: T.crimson,
     paddingVertical: 15,
     paddingHorizontal: 12,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#8B0000',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
   },
   modalPrimaryBtnText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 0.3,
     textAlign: 'center',
@@ -1818,18 +2283,20 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '48%',
     minWidth: 110,
-    backgroundColor: '#F5F5F7',
-    paddingVertical: 15,
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    paddingVertical: 14,
     paddingHorizontal: 12,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalSecondaryBtnText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    letterSpacing: 0.3,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: 0.2,
     textAlign: 'center',
   },
 })

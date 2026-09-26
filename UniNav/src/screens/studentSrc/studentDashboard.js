@@ -10,13 +10,16 @@ import {
   StatusBar,
   Modal,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, CommonActions } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useSemester } from '../../context/SemesterContext';
-import { navigate } from '../../navigation/navigationRef';
+import { navigate, navigationRef } from '../../navigation/navigationRef';
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
+import SemesterProgressStrip from '../../components/SemesterProgressStrip';
 
 // ============================================================
 // CONSTANTS
@@ -149,6 +152,13 @@ const titleCase = (str) => {
     .join(' ');
 };
 
+const getInitials = (name) => {
+  if (!name) return 'ST';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
 // ============================================================
 // LIVE STATUS
 // ============================================================
@@ -254,14 +264,63 @@ const StudentDashboard = ({ navigation }) => {
   const [nextClass, setNextClass] = useState(null);
   const [now, setNow] = useState(new Date());
 
-  // Class detail modal
   const [detailClass, setDetailClass] = useState(null);
 
-  // Clock tick — drives greeting / live status labels only
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // ============================================================
+  // LOGOUT
+  // ============================================================
+
+  const performLogout = async () => {
+    try {
+      setLoggingOut(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      setLogoutModalOpen(false);
+
+      try {
+        if (
+          navigationRef &&
+          typeof navigationRef.isReady === 'function' &&
+          navigationRef.isReady()
+        ) {
+          navigationRef.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            })
+          );
+        } else {
+          navigate('Login');
+        }
+      } catch (navErr) {
+        console.warn('[Logout] nav reset failed, falling back:', navErr);
+        navigate('Login');
+      }
+    } catch (err) {
+      console.error('[Logout] error:', err);
+      Alert.alert(
+        'Could not log out',
+        err?.message || 'Something went wrong. Please try again.'
+      );
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const openLogoutModal = () => setLogoutModalOpen(true);
+  const closeLogoutModal = () => {
+    if (loggingOut) return;
+    setLogoutModalOpen(false);
+  };
 
   // ============================================================
   // DATA LOAD
@@ -430,12 +489,12 @@ const StudentDashboard = ({ navigation }) => {
     navigation.navigate('Schedule');
   };
 
-  const openSettings = () => {
-    navigation.navigate('Settings');
-  };
-
   const openMap = () => {
     navigate('StudentMap');
+  };
+
+  const openOfficials = () => {
+    navigation.navigate('Officials');
   };
 
   const handleNavigate = (cls) => {
@@ -479,6 +538,8 @@ const StudentDashboard = ({ navigation }) => {
     ? titleCase(profile.full_name)
     : 'Student';
 
+  const initials = getInitials(profile?.full_name || displayName);
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#8B0000" />
@@ -507,12 +568,26 @@ const StudentDashboard = ({ navigation }) => {
           </View>
 
           <TouchableOpacity
-            onPress={() => navigation.navigate('Login')}
+            onPress={openLogoutModal}
             style={styles.logoutButton}
+            disabled={loggingOut}
+            activeOpacity={0.8}
           >
-            <Text style={styles.logoutText}>Logout</Text>
+            {loggingOut ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <View style={styles.logoutIconChip}>
+                  <Feather name="log-out" size={12} color="#FFFFFF" />
+                </View>
+                <Text style={styles.logoutLabel}>LOG OUT</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
+
+        {/* ==================== SEMESTER PROGRESS ==================== */}
+        <SemesterProgressStrip accentColor="#8B0000" variant="light" />
 
         {/* SUMMARY CARDS */}
         <View style={styles.summaryRow}>
@@ -728,35 +803,24 @@ const StudentDashboard = ({ navigation }) => {
           <View style={styles.quickGrid}>
             <TouchableOpacity
               style={styles.quickCard}
-              onPress={openFullSchedule}
+              onPress={openMap}
+              activeOpacity={0.75}
             >
-              <Text style={styles.quickIcon}>📅</Text>
-              <Text style={styles.quickLabel}>My Schedule</Text>
-              <Text style={styles.quickSub}>Full week view</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.quickCard} onPress={openMap}>
-              <Text style={styles.quickIcon}>🗺️</Text>
+              <View style={styles.quickIconWrap}>
+                <Feather name="map" size={20} color="#8B0000" />
+              </View>
               <Text style={styles.quickLabel}>Campus Map</Text>
               <Text style={styles.quickSub}>Find rooms</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.quickCard} onPress={openSettings}>
-              <Text style={styles.quickIcon}>⚙️</Text>
-              <Text style={styles.quickLabel}>Settings</Text>
-              <Text style={styles.quickSub}>Account & app</Text>
-            </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.quickCard}
-              onPress={() =>
-                Alert.alert(
-                  'Coming soon',
-                  'University Officials Directory will be available soon.'
-                )
-              }
+              onPress={openOfficials}
+              activeOpacity={0.75}
             >
-              <Text style={styles.quickIcon}>👥</Text>
+              <View style={styles.quickIconWrap}>
+                <Feather name="users" size={20} color="#8B0000" />
+              </View>
               <Text style={styles.quickLabel}>Officials</Text>
               <Text style={styles.quickSub}>Directory</Text>
             </TouchableOpacity>
@@ -798,7 +862,6 @@ const StudentDashboard = ({ navigation }) => {
 
                   return (
                     <>
-                      {/* HEADER */}
                       <View style={styles.modalHeader}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.modalEyebrow}>CLASS DETAILS</Text>
@@ -818,22 +881,8 @@ const StudentDashboard = ({ navigation }) => {
                         </TouchableOpacity>
                       </View>
 
-                      {/* BADGES */}
                       <View style={styles.modalBadgesRow}>
-                        {isGhost ? (
-                          <View
-                            style={[styles.modalBadge, styles.modalBadgeCancelled]}
-                          >
-                            <Text
-                              style={[
-                                styles.modalBadgeText,
-                                styles.modalBadgeTextCancelled,
-                              ]}
-                            >
-                              ! CANCELLED
-                            </Text>
-                          </View>
-                        ) : (
+                        {!isGhost && (
                           <View
                             style={[
                               styles.modalBadge,
@@ -879,7 +928,6 @@ const StudentDashboard = ({ navigation }) => {
                         )}
                       </View>
 
-                      {/* INFO GRID */}
                       <View style={styles.modalGrid}>
                         <View style={styles.modalGridItem}>
                           <Text style={styles.modalGridLabel}>PROFESSOR</Text>
@@ -921,7 +969,6 @@ const StudentDashboard = ({ navigation }) => {
                         </View>
                       </View>
 
-                      {/* UNIFIED STATUS BLOCK — cancellation reason folded in */}
                       {live && (
                         <View
                           style={[
@@ -965,7 +1012,6 @@ const StudentDashboard = ({ navigation }) => {
                         </View>
                       )}
 
-                      {/* PROFESSOR NOTE */}
                       {isGhost && !!detailClass.ghostReport?.notes && (
                         <View style={styles.modalNotesBox}>
                           <Text style={styles.modalNotesLabel}>
@@ -977,7 +1023,6 @@ const StudentDashboard = ({ navigation }) => {
                         </View>
                       )}
 
-                      {/* ACTIONS */}
                       <View style={styles.modalActions}>
                         {canViewRoute && (
                           <TouchableOpacity
@@ -1016,6 +1061,83 @@ const StudentDashboard = ({ navigation }) => {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ============================================================
+          LOGOUT CONFIRMATION MODAL
+          ============================================================ */}
+      <Modal
+        visible={logoutModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeLogoutModal}
+      >
+        <Pressable style={styles.logoutBackdrop} onPress={closeLogoutModal}>
+          <Pressable style={styles.logoutCard} onPress={() => {}}>
+            <View style={styles.logoutToneStrip}>
+              <View style={styles.logoutToneDot} />
+              <Text style={styles.logoutToneLabel}>SIGN OUT</Text>
+            </View>
+
+            <View style={styles.logoutBadgeWrap}>
+              <View style={styles.logoutBadge}>
+                <Feather name="log-out" size={28} color="#8B0000" />
+              </View>
+            </View>
+
+            <Text style={styles.logoutCardTitle}>Log out of UniNav?</Text>
+            <Text style={styles.logoutCardSubtitle}>
+              You'll be signed out of your student account and will need to
+              log in again to access your portal.
+            </Text>
+
+            {!!profile?.full_name && (
+              <View style={styles.logoutAccountPill}>
+                <View style={styles.logoutAccountAvatar}>
+                  <Text style={styles.logoutAccountAvatarText}>{initials}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.logoutAccountLabel}>SIGNED IN AS</Text>
+                  <Text
+                    style={styles.logoutAccountName}
+                    numberOfLines={1}
+                  >
+                    {displayName}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.logoutActions}>
+              <TouchableOpacity
+                style={styles.logoutCancelBtn}
+                onPress={closeLogoutModal}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.logoutCancelText}>Stay signed in</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.logoutConfirmBtn}
+                onPress={performLogout}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <View style={styles.logoutConfirmIconChip}>
+                      <Feather name="log-out" size={12} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.logoutConfirmText}>Log out</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -1035,7 +1157,11 @@ const StudentDashboardSkeleton = () => (
           <Skeleton width={180} height={24} radius={6} />
           <Skeleton width={200} height={13} radius={4} />
         </View>
-        <Skeleton width={64} height={32} radius={8} />
+        <Skeleton width={98} height={34} radius={999} />
+      </View>
+
+      <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+        <Skeleton width="100%" height={78} radius={16} />
       </View>
 
       <View style={styles.summaryRow}>
@@ -1168,14 +1294,14 @@ const StudentDashboardSkeleton = () => (
           style={{ marginBottom: 12 }}
         />
         <View style={styles.quickGrid}>
-          {[1, 2, 3, 4].map((i) => (
+          {[1, 2].map((i) => (
             <View key={i} style={styles.quickCard}>
-              <Skeleton width={24} height={24} radius={6} />
+              <Skeleton width={40} height={40} radius={12} />
               <Skeleton
                 width="70%"
                 height={13}
                 radius={4}
-                style={{ marginTop: 10 }}
+                style={{ marginTop: 14 }}
               />
               <Skeleton
                 width="50%"
@@ -1208,11 +1334,12 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 24,
     backgroundColor: '#8B0000',
+    gap: 12,
   },
   headerEyebrow: {
     fontSize: 10,
@@ -1243,20 +1370,45 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontWeight: '600',
   },
+
   logoutButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 5,
+    paddingRight: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+    gap: 8,
+    minHeight: 34,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-  logoutText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  logoutIconChip: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutLabel: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+  },
 
   summaryRow: {
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,
-    marginTop: 16,
+    marginTop: 12,
   },
   summaryCard: {
     flex: 1,
@@ -1546,12 +1698,20 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  quickIcon: { fontSize: 24, marginBottom: 8 },
+  quickIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#FDECEC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
   quickLabel: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
   quickSub: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
 
   // ============================================================
-  // MODAL
+  // CLASS MODAL
   // ============================================================
   modalBackdrop: {
     flex: 1,
@@ -1637,11 +1797,9 @@ const styles = StyleSheet.create({
   },
   modalBadgeF2F: { backgroundColor: '#FEF3C7' },
   modalBadgeOnline: { backgroundColor: '#DBEAFE' },
-  modalBadgeCancelled: { backgroundColor: '#FDECEC' },
   modalBadgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.4 },
   modalBadgeTextF2F: { color: '#C77700' },
   modalBadgeTextOnline: { color: '#1E88E5' },
-  modalBadgeTextCancelled: { color: '#B00020' },
   modalStatusPill: {
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -1779,6 +1937,179 @@ const styles = StyleSheet.create({
     color: '#1A1A1A',
     letterSpacing: 0.3,
     textAlign: 'center',
+  },
+
+  // ============================================================
+  // LOGOUT CONFIRMATION MODAL
+  // ============================================================
+  logoutBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(11,11,13,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  logoutCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+
+  logoutToneStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#FDECEC',
+    gap: 8,
+    marginBottom: 20,
+  },
+  logoutToneDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#8B0000',
+  },
+  logoutToneLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    color: '#8B0000',
+  },
+
+  logoutBadgeWrap: {
+    marginBottom: 18,
+  },
+  logoutBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#FDECEC',
+    borderWidth: 2,
+    borderColor: '#F5C2C0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  logoutCardTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#0B0B0D',
+    letterSpacing: -0.4,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  logoutCardSubtitle: {
+    fontSize: 13,
+    color: '#71717A',
+    textAlign: 'center',
+    lineHeight: 19,
+    fontWeight: '500',
+    paddingHorizontal: 6,
+    marginBottom: 20,
+  },
+
+  logoutAccountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E7E7E9',
+    padding: 12,
+    gap: 12,
+    marginBottom: 22,
+  },
+  logoutAccountAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#8B0000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutAccountAvatarText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  logoutAccountLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: '#A1A1AA',
+    marginBottom: 3,
+  },
+  logoutAccountName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0B0B0D',
+    letterSpacing: -0.1,
+  },
+
+  logoutActions: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    gap: 10,
+  },
+  logoutCancelBtn: {
+    flex: 1,
+    paddingVertical: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E7E7E9',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutCancelText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0B0B0D',
+    letterSpacing: 0.2,
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingLeft: 5,
+    paddingRight: 14,
+    borderRadius: 12,
+    backgroundColor: '#8B0000',
+    gap: 8,
+    minHeight: 48,
+    shadowColor: '#8B0000',
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  logoutConfirmIconChip: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutConfirmText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
 });
 
