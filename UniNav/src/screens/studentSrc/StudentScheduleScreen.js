@@ -203,6 +203,22 @@ const getLiveStatus = (cls, nowMin) => {
   }
 
   if (isOnline) {
+    // Check if the online class has ended
+    const isEnded = hasSession 
+      ? (cls.liveSession.status === 'completed' || !!cls.liveSession.ended_at || (end !== null && nowMin > end))
+      : (end !== null && nowMin > end);
+
+    if (isEnded) {
+      return {
+        roomState: 'ended',
+        icon: '·',
+        headline: 'ONLINE CLASS ENDED',
+        subline: hasSession && cls.liveSession.ended_at
+          ? `Session ended at ${formatVerifiedTime(cls.liveSession.ended_at)}`
+          : 'Scheduled time has passed',
+      };
+    }
+
     return {
       roomState: 'online',
       icon: '🌐',
@@ -385,7 +401,8 @@ const StudentScheduleScreen = () => {
       const [sessionsRes, ghostsRes] = await Promise.all([
         supabase
           .from('room_sessions')
-          .select('schedule_id, status, class_type, scanned_at')
+          // 👇 ADDED ended_at HERE
+          .select('schedule_id, status, class_type, scanned_at, ended_at')
           .in('schedule_id', scheduleIds)
           .gte('scanned_at', startOfDay.toISOString())
           .lte('scanned_at', endOfDay.toISOString()),

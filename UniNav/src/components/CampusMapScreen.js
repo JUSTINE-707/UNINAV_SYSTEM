@@ -12,7 +12,7 @@ import {
   ScrollView,
   useWindowDimensions,
 } from 'react-native'
-import Svg, { Polyline, Circle } from 'react-native-svg'
+import Svg, { Polyline, Circle, Polygon, G, Path } from 'react-native-svg'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import Animated, {
   useSharedValue,
@@ -33,12 +33,27 @@ const DEFAULT_OFFSET_Y = 0
 const DEFAULT_ROTATION = 0
 const MIN_SCALE = 1
 const MAX_SCALE = 5
-const MAX_ROUTES = 3
 const ZOOM_STEP = 1.35
 
-// Fallback chrome height (header + search) — replaced by the
-// measured map area via onLayout on first render.
+const MAX_ROUTES = 1
 const FALLBACK_CHROME_HEIGHT = 260
+
+// ============================================================
+// MAP PIN ICON
+// ============================================================
+// Classic teardrop pin defined in a 24×24 viewbox. Tip at (12, 23).
+
+const PIN_PATH =
+  'M12 2C7.58 2 4 5.58 4 10c0 5.25 7 11 8 12 1-1 8-6.75 8-12 0-4.42-3.58-8-8-8zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z'
+
+// Scale the 24×24 pin to a target size and shift so its tip
+// (originally at 12,23) lands at (0,0).
+const pinTransform = (size) => {
+  const s = size / 24
+  const tx = -12 * s
+  const ty = -23 * s
+  return `translate(${tx}, ${ty}) scale(${s})`
+}
 
 // ============================================================
 // HAPTICS
@@ -54,6 +69,309 @@ const hapticSelection = () => {
   try { Haptics.selectionAsync() } catch {}
 }
 
+// ============================================================
+// FLOOR NAMES
+// ============================================================
+
+const ORDINALS = {
+  0: 'Ground Level',
+  1: 'First Floor',
+  2: 'Second Floor',
+  3: 'Third Floor',
+  4: 'Fourth Floor',
+  5: 'Fifth Floor',
+  6: 'Sixth Floor',
+  7: 'Seventh Floor',
+  8: 'Eighth Floor',
+  9: 'Ninth Floor',
+  10: 'Tenth Floor',
+}
+
+const floorName = (level) => {
+  if (level === 0) return 'Ground Level'
+  if (level < 0) return `Basement ${Math.abs(level)}`
+  return ORDINALS[level] || `Floor ${level}`
+}
+
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')
+
+const sideOf = (label) => {
+  if (!label) return ''
+  if (label.endsWith('-L')) return 'left'
+  if (label.endsWith('-M')) return 'middle'
+  if (label.endsWith('-R')) return 'right'
+  return ''
+}
+
+const buildingShortName = (buildingId, buildings) => {
+  if (!buildingId) return ''
+  const bldg = buildings?.find((b) => b.id === buildingId)
+  if (!bldg?.name) return 'Bldg'
+  const words = bldg.name.split(/\s+/)
+  const acronym = words.find((w) => /^[A-Z]{2,}$/.test(w))
+  if (acronym) return acronym
+  return words[0].slice(0, 6)
+}
+
+const getFloorShort = (node, buildings) => {
+  if (!node) return ''
+  if (!node.building_id) return 'Ground Level'
+  const short = buildingShortName(node.building_id, buildings)
+  return `${short} ${floorName(node.floor_level)}`
+}
+
+const getFloorLabel = (buildingId, floorLevel, buildings) => {
+  if (!buildingId) return 'Outdoor'
+  const short = buildingShortName(buildingId, buildings)
+  return `${short} ${floorName(floorLevel)}`
+}
+
+// ============================================================
+// NODE DESCRIPTIONS
+// ============================================================
+
+const describeNode = (node, path, idx) => {
+  if (!node) return ''
+  if (node.display_label) return node.display_label
+
+  const label = node.label || ''
+
+  if (node.node_type === 'stairs' || /STAIRS/i.test(label)) {
+    const side = sideOf(label)
+    return side ? `${cap(side)} stairwell` : 'Stairwell'
+  }
+  if (node.node_type === 'elevator' || /ELEV/i.test(label)) return 'Elevator'
+  if (node.node_type === 'entrance' || /ENTRANCE|ENT$/i.test(label))
+    return 'Building entrance'
+  if (node.node_type === 'gate' || /GATE|^G\d-WP/i.test(label))
+    return 'Campus gate'
+  if (node.node_type === 'door' || /DOOR/i.test(label)) return 'Room door'
+  if (node.node_type === 'landmark') return label
+
+  if (node.node_type === 'waypoint') {
+    const prev = path?.[idx - 1]
+    const next = path?.[idx + 1]
+    if (next && next.node_type === 'landmark') return `Approaching ${next.label}`
+    if (prev && prev.node_type === 'landmark') return `Leaving ${prev.label}`
+    return ''
+  }
+
+  return ''
+}
+
+// ============================================================
+// TURN DETECTION
+// ============================================================
+
+const getBearing = (a, b) => {
+  const dx = Number(b.coord_x) - Number(a.coord_x)
+  const dy = Number(b.coord_y) - Number(a.coord_y)
+  return Math.atan2(dy, dx)
+}
+
+const turnDirection = (path, i) => {
+  if (i === 0 || i + 2 >= path.length) return 'straight'
+  const a = path[i]
+  const b = path[i + 1]
+  const c = path[i + 2]
+  const b1 = getBearing(a, b)
+  const b2 = getBearing(b, c)
+  let d = b2 - b1
+  while (d > Math.PI) d -= 2 * Math.PI
+  while (d < -Math.PI) d += 2 * Math.PI
+  if (d > 0.4) return 'right'
+  if (d < -0.4) return 'left'
+  return 'straight'
+}
+
+// ============================================================
+// ROUTE ARROWS
+// ============================================================
+
+const dist = (a, b) => {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+const lerpPoint = (a, b, t) => ({
+  x: a.x + (b.x - a.x) * t,
+  y: a.y + (b.y - a.y) * t,
+})
+
+const arrowTriangle = (from, to, point, size) => {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const len = Math.sqrt(dx * dx + dy * dy)
+  if (len === 0) return null
+
+  const ux = dx / len
+  const uy = dy / len
+  const px = -uy
+  const py = ux
+
+  const tip = {
+    x: point.x + ux * (size * 0.5),
+    y: point.y + uy * (size * 0.5),
+  }
+  const baseCx = point.x - ux * (size * 0.5)
+  const baseCy = point.y - uy * (size * 0.5)
+  const left = {
+    x: baseCx + px * (size * 0.4),
+    y: baseCy + py * (size * 0.4),
+  }
+  const right = {
+    x: baseCx - px * (size * 0.4),
+    y: baseCy - py * (size * 0.4),
+  }
+
+  return `${tip.x},${tip.y} ${left.x},${left.y} ${right.x},${right.y}`
+}
+
+const computeArrows = (points, spacing) => {
+  if (!points || points.length < 2) return []
+  const arrows = []
+  let accumulated = 0
+  let nextArrow = spacing * 0.5
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const segLen = dist(a, b)
+    if (segLen === 0) continue
+
+    while (nextArrow <= accumulated + segLen) {
+      const t = (nextArrow - accumulated) / segLen
+      const p = lerpPoint(a, b, t)
+      arrows.push({ point: p, from: a, to: b })
+      nextArrow += spacing
+    }
+    accumulated += segLen
+  }
+
+  return arrows
+}
+
+// ============================================================
+// STEP GENERATION
+// ============================================================
+
+const generateSteps = (path, buildings, destinationName) => {
+  if (!path || path.length < 2) return []
+
+  const steps = []
+  let pendingStraight = 0
+
+  const flushStraight = (from, to) => {
+    if (pendingStraight <= 0) return
+    const contextName = describeNode(to, path, path.indexOf(to))
+    steps.push({
+      icon: '↑',
+      title: 'Continue straight',
+      subtitle: contextName || 'Follow the highlighted route',
+      floor: from.floor_level,
+      buildingId: from.building_id,
+      nodeId: from.id,
+    })
+    pendingStraight = 0
+  }
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const from = path[i]
+    const to = path[i + 1]
+
+    const isFloorUp =
+      to.node_type === 'stairs' && to.floor_level > from.floor_level
+    const isFloorDown =
+      to.node_type === 'stairs' && to.floor_level < from.floor_level
+    const isElevator = to.node_type === 'elevator'
+    const isFloorChange = from.floor_level !== to.floor_level
+    const isDestination = i === path.length - 2
+
+    if (isDestination) {
+      flushStraight(from, to)
+      steps.push({
+        icon: '🏁',
+        title:
+          destinationName && destinationName !== to.label
+            ? `Arrive at ${destinationName}`
+            : 'Arrive at your destination',
+        subtitle: 'You have reached the end of the highlighted route',
+        floor: to.floor_level,
+        buildingId: to.building_id,
+        nodeId: to.id,
+        isDestination: true,
+      })
+      continue
+    }
+
+    if (isFloorUp || isElevator) {
+      flushStraight(from, to)
+      const side = sideOf(to.label)
+      steps.push({
+        icon: isElevator ? '🛗' : '🔼',
+        title: isElevator
+          ? `Take the elevator to ${getFloorShort(to, buildings)}`
+          : `Go up to ${getFloorShort(to, buildings)}`,
+        subtitle: side ? `Take the ${side} stairs` : 'Follow the stairs',
+        floor: to.floor_level,
+        buildingId: to.building_id,
+        nodeId: to.id,
+      })
+      continue
+    }
+
+    if (isFloorDown) {
+      flushStraight(from, to)
+      const side = sideOf(to.label)
+      steps.push({
+        icon: '🔽',
+        title: `Go down to ${getFloorShort(to, buildings)}`,
+        subtitle: side ? `Take the ${side} stairs` : 'Follow the stairs',
+        floor: to.floor_level,
+        buildingId: to.building_id,
+        nodeId: to.id,
+      })
+      continue
+    }
+
+    if (isFloorChange) {
+      flushStraight(from, to)
+      steps.push({
+        icon: '⇅',
+        title: `Continue to ${getFloorShort(to, buildings)}`,
+        subtitle: describeNode(to, path, i + 1),
+        floor: to.floor_level,
+        buildingId: to.building_id,
+        nodeId: to.id,
+      })
+      continue
+    }
+
+    const turn = turnDirection(path, i)
+
+    if (turn === 'straight') {
+      pendingStraight += 1
+      continue
+    }
+
+    flushStraight(from, to)
+
+    steps.push({
+      icon: turn === 'left' ? '↰' : '↱',
+      title: turn === 'left' ? 'Turn left' : 'Turn right',
+      subtitle: describeNode(to, path, i + 1),
+      floor: to.floor_level,
+      buildingId: to.building_id,
+      nodeId: to.id,
+    })
+  }
+
+  return steps
+}
+
+// ============================================================
+
 const CampusMapScreen = ({
   defaultStartLabel = 'G1-WP1',
   showDebugPanel = false,
@@ -63,10 +381,8 @@ const CampusMapScreen = ({
   const route = useRoute()
   const navigation = useNavigation()
 
-  // ---- Responsive screen sizing (updates on rotate / fold) ----
   const { width: screenW, height: screenH } = useWindowDimensions()
 
-  // ---- Live map area size (measured via onLayout) ----
   const [mapSize, setMapSize] = useState({
     w: screenW,
     h: screenH - FALLBACK_CHROME_HEIGHT,
@@ -83,7 +399,6 @@ const CampusMapScreen = ({
   const [nodes, setNodes] = useState([])
   const [edges, setEdges] = useState([])
   const [paths, setPaths] = useState([])
-  const [pathIndex, setPathIndex] = useState(0)
   const [floorPlan, setFloorPlan] = useState(null)
   const [rooms, setRooms] = useState([])
   const [buildings, setBuildings] = useState([])
@@ -103,8 +418,10 @@ const CampusMapScreen = ({
   const [pickingFor, setPickingFor] = useState(null)
   const [pickerQuery, setPickerQuery] = useState('')
 
-  const [routeModalOpen, setRouteModalOpen] = useState(false)
   const [isRotated, setIsRotated] = useState(false)
+
+  const [currentStepIdx, setCurrentStepIdx] = useState(0)
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const scale = useSharedValue(DEFAULT_ZOOM)
   const savedScale = useSharedValue(DEFAULT_ZOOM)
@@ -119,11 +436,15 @@ const CampusMapScreen = ({
   const imgH = useSharedValue(1657)
   const fs = useSharedValue(1)
 
-  // Shared values for map area dimensions so worklets can read them live
   const areaW = useSharedValue(screenW)
   const areaH = useSharedValue(screenH - FALLBACK_CHROME_HEIGHT)
 
-  const path = paths[pathIndex] || []
+  const path = paths[0] || []
+
+  const steps = useMemo(
+    () => generateSteps(path, buildings, targetRoomName),
+    [path, buildings, targetRoomName]
+  )
 
   // ============================================================
   // MAP AREA LAYOUT HANDLER
@@ -143,23 +464,6 @@ const CampusMapScreen = ({
     },
     [areaW, areaH]
   )
-
-  // ============================================================
-  // FLOOR LABEL HELPER
-  // ============================================================
-
-  const getFloorLabel = (buildingId, floorLevel) => {
-    if (!buildingId) return 'Outdoor'
-    const bldg = buildings.find((b) => b.id === buildingId)
-    let shortName = 'Bldg'
-    if (bldg?.name) {
-      const words = bldg.name.split(/\s+/)
-      const acronym = words.find((w) => /^[A-Z]{2,}$/.test(w))
-      if (acronym) shortName = acronym
-      else shortName = words[0].slice(0, 6)
-    }
-    return `${shortName} ${floorLevel}F`
-  }
 
   // ============================================================
   // ROUTE INFO
@@ -212,21 +516,19 @@ const CampusMapScreen = ({
 
   const hasRoute = currentFloorPath.length > 0
 
-  const getRouteSignature = (p) => {
-    if (!p || p.length <= 2) return 'Direct route'
-    const midIndex = Math.floor(p.length / 2)
-    const mid = p[midIndex]
-    return `via ${mid.label || 'midpoint'}`
-  }
-
   const computeRoute = (startId, endId, nodesArr, edgesArr) => {
     if (!startId || !endId) return 'Missing start or end node.'
 
-    const allPaths = findKShortestPaths(nodesArr, edgesArr, startId, endId, MAX_ROUTES)
+    const allPaths = findKShortestPaths(
+      nodesArr,
+      edgesArr,
+      startId,
+      endId,
+      MAX_ROUTES
+    )
 
     if (!allPaths || allPaths.length === 0) {
       setPaths([])
-      setPathIndex(0)
       return 'No path found between these two nodes.'
     }
 
@@ -235,7 +537,6 @@ const CampusMapScreen = ({
     )
 
     setPaths(pathsWithNodes)
-    setPathIndex(0)
     return null
   }
 
@@ -343,6 +644,8 @@ const CampusMapScreen = ({
         }
 
         let endNode = null
+
+        // 1. Try to match as a room
         const { data: roomLookup } = await supabase
           .from('rooms')
           .select('id, nav_node_id, room_code')
@@ -353,6 +656,14 @@ const CampusMapScreen = ({
           endNode = safeNodes.find((n) => n.id === roomLookup.nav_node_id)
         }
 
+        // 2. Try to match directly by node label (used by long-press pin routing)
+        if (!endNode) {
+          endNode = safeNodes.find(
+            (n) => n.label?.toUpperCase() === targetRoomName?.toUpperCase()
+          )
+        }
+
+        // 3. Fallback map
         if (!endNode) {
           const upper = targetRoomName.toUpperCase()
           const fallbackMap = [
@@ -379,12 +690,24 @@ const CampusMapScreen = ({
           return
         }
 
-        setPinnedLocation({
-          coord_x: Number(endNode.coord_x),
-          coord_y: Number(endNode.coord_y),
-          label: targetRoomName || endNode.label,
-          floor_level: endNode.floor_level,
-          building_id: endNode.building_id || null,
+        setPinnedLocation((prev) => {
+          // If the user just dropped a pin, keep their pin at the tap
+          // point (not moved to the destination node). Otherwise move
+          // the pin to the destination.
+          if (prev?.isDroppedPin) {
+            return {
+              ...prev,
+              floor_level: endNode.floor_level,
+              building_id: endNode.building_id || null,
+            }
+          }
+          return {
+            coord_x: Number(endNode.coord_x),
+            coord_y: Number(endNode.coord_y),
+            label: targetRoomName || endNode.label,
+            floor_level: endNode.floor_level,
+            building_id: endNode.building_id || null,
+          }
         })
 
         const routeError = computeRoute(startNode.id, endNode.id, safeNodes, safeEdges)
@@ -402,8 +725,48 @@ const CampusMapScreen = ({
   }, [targetRoomName, currentBuildingId, currentFloor, defaultStartLabel, refreshKey])
 
   // ============================================================
-  // FIT SCALE — uses measured map area so the plan fits the
-  // actual viewport (not a screen-size guess).
+  // STEP SHEET SIDE EFFECTS
+  // ============================================================
+
+  useEffect(() => {
+    setCurrentStepIdx(0)
+    setSheetOpen(false)
+  }, [path])
+
+  useEffect(() => {
+    if (!steps.length) return
+
+    const cur = steps[currentStepIdx]
+    if (
+      cur &&
+      cur.floor === currentFloor &&
+      (cur.buildingId || null) === (currentBuildingId || null)
+    ) {
+      return
+    }
+
+    for (let i = currentStepIdx; i < steps.length; i++) {
+      if (
+        steps[i].floor === currentFloor &&
+        (steps[i].buildingId || null) === (currentBuildingId || null)
+      ) {
+        setCurrentStepIdx(i)
+        return
+      }
+    }
+    for (let i = currentStepIdx - 1; i >= 0; i--) {
+      if (
+        steps[i].floor === currentFloor &&
+        (steps[i].buildingId || null) === (currentBuildingId || null)
+      ) {
+        setCurrentStepIdx(i)
+        return
+      }
+    }
+  }, [currentFloor, currentBuildingId, steps])
+
+  // ============================================================
+  // FIT SCALE
   // ============================================================
 
   const fitScale = useMemo(() => {
@@ -418,8 +781,7 @@ const CampusMapScreen = ({
   }, [fitScale, fs])
 
   // ============================================================
-  // BOUNDS — read live dimensions from shared values so worklets
-  // always clamp against the current map area.
+  // BOUNDS
   // ============================================================
 
   const getBounds = (s, r) => {
@@ -473,7 +835,7 @@ const CampusMapScreen = ({
   }
 
   // ============================================================
-  // REFRESH — clears the route AND reloads data
+  // REFRESH
   // ============================================================
 
   const handleRefresh = () => {
@@ -481,10 +843,11 @@ const CampusMapScreen = ({
     hapticMedium()
 
     setPaths([])
-    setPathIndex(0)
     setTargetRoomName(null)
     setPinnedLocation(null)
     setError(null)
+    setCurrentStepIdx(0)
+    setSheetOpen(false)
 
     setCurrentBuildingId(null)
     setCurrentFloor(0)
@@ -514,15 +877,39 @@ const CampusMapScreen = ({
     setCurrentFloor(currentTransition.toFloorLevel)
   }
 
+  // ============================================================
+  // LONG-PRESS PIN — snaps to nearest node
+  // ============================================================
+
   const handleLongPressPin = (x, y) => {
     hapticMedium()
     const imageX = x / RENDER_MULTIPLIER
     const imageY = y / RENDER_MULTIPLIER
 
+    // Find nearest node on the current floor/building
+    const candidates = nodes.filter((n) => {
+      const nB = n.building_id || null
+      const tB = currentBuildingId || null
+      return n.floor_level === currentFloor && nB === tB
+    })
+
+    let nearest = null
+    let nearestDist = Infinity
+    for (const n of candidates) {
+      const dx = Number(n.coord_x) - imageX
+      const dy = Number(n.coord_y) - imageY
+      const d = Math.sqrt(dx * dx + dy * dy)
+      if (d < nearestDist) {
+        nearestDist = d
+        nearest = n
+      }
+    }
+
     setPaths([])
-    setPathIndex(0)
     setError(null)
     setTargetRoomName(null)
+    setCurrentStepIdx(0)
+    setSheetOpen(false)
 
     setPinnedLocation({
       coord_x: imageX,
@@ -530,10 +917,14 @@ const CampusMapScreen = ({
       label: 'Dropped Pin',
       floor_level: currentFloor,
       building_id: currentBuildingId || null,
+      isDroppedPin: true,
+      nearestNodeId: nearest?.id || null,
+      nearestNodeLabel: nearest?.label || null,
+      nearestDistance: nearestDist,
     })
   }
 
-  // AUTO-CENTER on pin — reads live area dimensions
+  // AUTO-CENTER on pin
   useEffect(() => {
     const pinMatchesView =
       pinnedLocation &&
@@ -690,6 +1081,7 @@ const CampusMapScreen = ({
   // ============================================================
   // SEARCH
   // ============================================================
+
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return []
     const q = searchQuery.trim().toLowerCase()
@@ -714,9 +1106,10 @@ const CampusMapScreen = ({
     Keyboard.dismiss()
 
     setPaths([])
-    setPathIndex(0)
     setError(null)
     setPinnedLocation(null)
+    setCurrentStepIdx(0)
+    setSheetOpen(false)
 
     if (item.type === 'building') {
       setCurrentBuildingId(null)
@@ -728,6 +1121,7 @@ const CampusMapScreen = ({
         label: item.name,
         floor_level: 0,
         building_id: null,
+        isDroppedPin: false,
       })
     } else {
       setCurrentBuildingId(null)
@@ -739,6 +1133,14 @@ const CampusMapScreen = ({
   const handleGetDirections = () => {
     if (!pinnedLocation) return
     hapticMedium()
+
+    // If the pin snapped to a node, use that as the destination
+    if (pinnedLocation.nearestNodeLabel) {
+      setTargetRoomName(pinnedLocation.nearestNodeLabel)
+      return
+    }
+
+    // Otherwise, try to route to the pin's label (best-effort)
     setTargetRoomName(pinnedLocation.label)
   }
 
@@ -747,8 +1149,9 @@ const CampusMapScreen = ({
     setPinnedLocation(null)
     setTargetRoomName(null)
     setPaths([])
-    setPathIndex(0)
     setError(null)
+    setCurrentStepIdx(0)
+    setSheetOpen(false)
   }
 
   const sortedNodes = useMemo(
@@ -793,8 +1196,9 @@ const CampusMapScreen = ({
     setDebugStartLabel('')
     setDebugEndLabel('')
     setPaths([])
-    setPathIndex(0)
     setError(null)
+    setCurrentStepIdx(0)
+    setSheetOpen(false)
   }
 
   const handleScanQRFromRoute = () => {
@@ -806,6 +1210,20 @@ const CampusMapScreen = ({
     })
   }
 
+  const handleStepPress = (idx) => {
+    hapticSelection()
+    setCurrentStepIdx(idx)
+    const s = steps[idx]
+    if (!s) return
+    if (
+      s.floor !== currentFloor ||
+      (s.buildingId || null) !== (currentBuildingId || null)
+    ) {
+      setCurrentBuildingId(s.buildingId || null)
+      setCurrentFloor(s.floor)
+    }
+  }
+
   // ============================================================
   // FLOOR SWITCHER VISIBILITY
   // ============================================================
@@ -815,14 +1233,27 @@ const CampusMapScreen = ({
   const isRoutingSwitcher = true
 
   // ============================================================
-  // POLYLINE POINTS STRING
+  // POLYLINE POINTS + ARROWS
   // ============================================================
+
   const currentRoutePoints = currentFloorPath
     .map(
       (n) =>
         `${n.coord_x * RENDER_MULTIPLIER},${n.coord_y * RENDER_MULTIPLIER}`
     )
     .join(' ')
+
+  const ARROW_SPACING = 120
+  const ARROW_SIZE = 14
+
+  const currentFloorArrowPositions = useMemo(() => {
+    if (!hasRoute || currentFloorPath.length < 2) return []
+    const pts = currentFloorPath.map((n) => ({
+      x: Number(n.coord_x) * RENDER_MULTIPLIER,
+      y: Number(n.coord_y) * RENDER_MULTIPLIER,
+    }))
+    return computeArrows(pts, ARROW_SPACING)
+  }, [currentFloorPath, hasRoute])
 
   if (loading) {
     return (
@@ -834,6 +1265,9 @@ const CampusMapScreen = ({
   }
 
   const isBrowsing = !targetRoomName && !hasRoute
+
+  const showScanQRFab = showScanQRAfterRoute && hasRoute && activeScheduleId
+  const sheetBottomOffset = showScanQRFab ? 80 : 12
 
   return (
     <View style={styles.container}>
@@ -979,9 +1413,9 @@ const CampusMapScreen = ({
         </View>
       )}
 
-      {/* MAP AREA — measured for responsive bounds/centering */}
+      {/* MAP AREA */}
       <View style={styles.mapArea} onLayout={onMapAreaLayout}>
-        {/* FLOOR SWITCHER — only visible during multi-floor route */}
+        {/* FLOOR SWITCHER */}
         {showSwitcher && !debugOpen && (
           <View style={styles.floorSwitcher} pointerEvents="box-none">
             <ScrollView
@@ -1004,7 +1438,7 @@ const CampusMapScreen = ({
                         style={[styles.floorBtnText, isActive && styles.floorBtnTextActive]}
                         numberOfLines={1}
                       >
-                        {getFloorLabel(f.building_id, f.floor_level)}
+                        {getFloorLabel(f.building_id, f.floor_level, buildings)}
                       </Text>
                     </TouchableOpacity>
                     {isRoutingSwitcher && idx < floorsToShow.length - 1 && (
@@ -1098,63 +1532,35 @@ const CampusMapScreen = ({
                     />
                   ))}
 
+              {/* PIN — classic teardrop map pin, tip anchored at coord */}
               {pinnedLocation &&
                 pinnedLocation.floor_level === currentFloor &&
                 (pinnedLocation.building_id || null) === (currentBuildingId || null) && (
-                  <>
+                  <G
+                    transform={`translate(${
+                      pinnedLocation.coord_x * RENDER_MULTIPLIER
+                    }, ${pinnedLocation.coord_y * RENDER_MULTIPLIER})`}
+                  >
+                    {/* soft ground glow */}
                     <Circle
-                      cx={pinnedLocation.coord_x * RENDER_MULTIPLIER}
-                      cy={pinnedLocation.coord_y * RENDER_MULTIPLIER}
-                      r={16 * RENDER_MULTIPLIER}
+                      cx={0}
+                      cy={0}
+                      r={20 * RENDER_MULTIPLIER}
                       fill="#F59E0B"
-                      opacity={0.2}
+                      opacity={0.18}
                     />
-                    <Circle
-                      cx={pinnedLocation.coord_x * RENDER_MULTIPLIER}
-                      cy={pinnedLocation.coord_y * RENDER_MULTIPLIER}
-                      r={9 * RENDER_MULTIPLIER}
-                      fill="#F59E0B"
-                      stroke="#FFFFFF"
-                      strokeWidth={2.5 * RENDER_MULTIPLIER}
-                    />
-                    <Circle
-                      cx={pinnedLocation.coord_x * RENDER_MULTIPLIER}
-                      cy={pinnedLocation.coord_y * RENDER_MULTIPLIER}
-                      r={3 * RENDER_MULTIPLIER}
-                      fill="#FFFFFF"
-                    />
-                  </>
+                    {/* pin body — tip lands exactly at (0,0) */}
+                    <G transform={pinTransform(44 * RENDER_MULTIPLIER)}>
+                      <Path d={PIN_PATH} fill="#F59E0B" />
+                      <Path
+                        d={PIN_PATH}
+                        fill="none"
+                        stroke="#FFFFFF"
+                        strokeWidth={1.4}
+                      />
+                    </G>
+                  </G>
                 )}
-
-              {/* ALTERNATE ROUTES */}
-              {hasRoute &&
-                paths.map((p, idx) => {
-                  if (idx === pathIndex) return null
-                  const floorPath = p.filter((node) => {
-                    const nodeBuilding = node.building_id || null
-                    const targetBuilding = currentBuildingId || null
-                    return node.floor_level === currentFloor && nodeBuilding === targetBuilding
-                  })
-                  if (floorPath.length < 2) return null
-                  return (
-                    <Polyline
-                      key={`alt-${idx}`}
-                      points={floorPath
-                        .map(
-                          (n) =>
-                            `${n.coord_x * RENDER_MULTIPLIER},${n.coord_y * RENDER_MULTIPLIER}`
-                        )
-                        .join(' ')}
-                      fill="none"
-                      stroke="#9CA3AF"
-                      strokeWidth={3 * RENDER_MULTIPLIER}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeDasharray={`${6 * RENDER_MULTIPLIER} ${4 * RENDER_MULTIPLIER}`}
-                      opacity={0.55}
-                    />
-                  )
-                })}
 
               {/* MAIN ROUTE — 3-layer for visibility */}
               {hasRoute && currentFloorPath.length > 1 && (
@@ -1185,6 +1591,27 @@ const CampusMapScreen = ({
                     strokeLinejoin="round"
                     opacity={0.95}
                   />
+
+                  {/* DIRECTION ARROWS */}
+                  {currentFloorArrowPositions.map((arrow, idx) => {
+                    const tri = arrowTriangle(
+                      arrow.from,
+                      arrow.to,
+                      arrow.point,
+                      ARROW_SIZE * RENDER_MULTIPLIER
+                    )
+                    if (!tri) return null
+                    return (
+                      <Polygon
+                        key={`arrow-${idx}`}
+                        points={tri}
+                        fill="#FFFFFF"
+                        stroke="#8B0000"
+                        strokeWidth={1.5 * RENDER_MULTIPLIER}
+                        strokeLinejoin="round"
+                      />
+                    )
+                  })}
                 </>
               )}
 
@@ -1271,7 +1698,7 @@ const CampusMapScreen = ({
         </GestureDetector>
 
         {/* TRANSITION BANNER */}
-        {currentTransition && !debugOpen && (
+        {currentTransition && !debugOpen && !sheetOpen && (
           <TouchableOpacity
             style={styles.transitionBanner}
             onPress={goToTransitionTarget}
@@ -1282,7 +1709,8 @@ const CampusMapScreen = ({
               <Text style={styles.transitionBannerTarget}>
                 {getFloorLabel(
                   currentTransition.toBuildingId,
-                  currentTransition.toFloorLevel
+                  currentTransition.toFloorLevel,
+                  buildings
                 )}
               </Text>
             </View>
@@ -1325,21 +1753,7 @@ const CampusMapScreen = ({
           </TouchableOpacity>
         )}
 
-        {paths.length > 1 && hasRoute && (
-          <TouchableOpacity
-            onPress={() => {
-              hapticSelection()
-              setRouteModalOpen(true)
-            }}
-            activeOpacity={0.85}
-            style={styles.routesFab}
-          >
-            <Text style={styles.routesFabIcon}>≡</Text>
-            <Text style={styles.routesFabText}>{paths.length} routes</Text>
-          </TouchableOpacity>
-        )}
-
-        {showScanQRAfterRoute && hasRoute && activeScheduleId && (
+        {showScanQRFab && (
           <TouchableOpacity
             onPress={handleScanQRFromRoute}
             activeOpacity={0.85}
@@ -1348,47 +1762,117 @@ const CampusMapScreen = ({
             <Text style={styles.scanQRFabText}>▣ Scan QR at this room</Text>
           </TouchableOpacity>
         )}
+
+        {/* STEP SHEET */}
+        {hasRoute && steps.length > 0 && (
+          <View
+            style={[
+              styles.stepSheet,
+              sheetOpen && styles.stepSheetOpen,
+              { bottom: sheetBottomOffset },
+            ]}
+          >
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                hapticLight()
+                setSheetOpen((v) => !v)
+              }}
+              style={styles.stepSheetHeader}
+            >
+              <View style={styles.stepSheetIconBox}>
+                <Text style={styles.stepSheetIcon}>
+                  {steps[currentStepIdx]?.icon || '↑'}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.stepSheetTitle} numberOfLines={2}>
+                  {steps[currentStepIdx]?.title || ''}
+                </Text>
+                <Text style={styles.stepSheetSubtitle} numberOfLines={2}>
+                  {steps[currentStepIdx]?.subtitle || ''}
+                </Text>
+              </View>
+              <Text style={styles.stepSheetCount}>
+                {currentStepIdx + 1}/{steps.length}
+              </Text>
+              <Text style={styles.stepSheetChevron}>
+                {sheetOpen ? '▾' : '▴'}
+              </Text>
+            </TouchableOpacity>
+
+            {sheetOpen && (
+              <ScrollView
+                style={styles.stepList}
+                showsVerticalScrollIndicator={false}
+              >
+                {steps.map((s, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[
+                      styles.stepRow,
+                      idx === currentStepIdx && styles.stepRowActive,
+                    ]}
+                    onPress={() => handleStepPress(idx)}
+                  >
+                    <Text style={styles.stepRowIcon}>{s.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.stepRowTitle} numberOfLines={2}>
+                        {s.title}
+                      </Text>
+                      {!!s.subtitle && (
+                        <Text style={styles.stepRowSub} numberOfLines={2}>
+                          {s.subtitle}
+                        </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
       </View>
 
       {/* FOOTER */}
-      <View style={styles.footer}>
-        {hasRoute ? (
-          <>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: '#059669' }]} />
-              <Text style={styles.legendLabel}>Start</Text>
-              <View
-                style={[styles.legendDot, { backgroundColor: '#8B0000', marginLeft: 16 }]}
-              />
-              <Text style={styles.legendLabel}>Destination</Text>
-              <View
-                style={[styles.legendDot, { backgroundColor: '#F59E0B', marginLeft: 16 }]}
-              />
-              <Text style={styles.legendLabel}>Pinned</Text>
-            </View>
-            <Text style={styles.routeSummary} numberOfLines={2}>
-              {path.length} steps{' '}
-              {paths.length > 1 ? ` · Route ${pathIndex + 1} of ${paths.length}` : ''}{' '}
-              {' · '}
-              {targetRoomName ||
-                (debugEndLabel ? `${debugStartLabel} → ${debugEndLabel}` : '')}
+      {!sheetOpen && (
+        <View style={styles.footer}>
+          {hasRoute ? (
+            <>
+              <View style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: '#059669' }]} />
+                <Text style={styles.legendLabel}>Start</Text>
+                <View
+                  style={[styles.legendDot, { backgroundColor: '#8B0000', marginLeft: 16 }]}
+                />
+                <Text style={styles.legendLabel}>Destination</Text>
+                <View
+                  style={[styles.legendDot, { backgroundColor: '#F59E0B', marginLeft: 16 }]}
+                />
+                <Text style={styles.legendLabel}>Pinned</Text>
+              </View>
+              <Text style={styles.routeSummary} numberOfLines={2}>
+                {path.length} steps ·{' '}
+                {targetRoomName ||
+                  (debugEndLabel ? `${debugStartLabel} → ${debugEndLabel}` : '')}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.browseHint} numberOfLines={2}>
+              {error
+                ? 'No route available'
+                : debugOpen
+                ? 'Pick a start and end node, then press Run'
+                : pinnedLocation
+                ? `Pinned: ${pinnedLocation.label} — tap Directions to route`
+                : 'Tap a class in Schedule, or search above'}
             </Text>
-          </>
-        ) : (
-          <Text style={styles.browseHint} numberOfLines={2}>
-            {error
-              ? 'No route available'
-              : debugOpen
-              ? 'Pick a start and end node, then press Run'
-              : pinnedLocation
-              ? `Pinned: ${pinnedLocation.label} — tap Directions to route`
-              : 'Tap a class in Schedule, or search above'}
+          )}
+          <Text style={styles.hint} numberOfLines={2}>
+            Pinch · Drag · Twist · Double-tap to reset · Long-press to pin
           </Text>
-        )}
-        <Text style={styles.hint} numberOfLines={2}>
-          Pinch · Drag · Twist · Double-tap to reset · Long-press to pin
-        </Text>
-      </View>
+        </View>
+      )}
 
       {/* NODE PICKER MODAL */}
       <Modal
@@ -1437,115 +1921,6 @@ const CampusMapScreen = ({
                 <Text style={styles.modalEmpty}>No matching nodes</Text>
               )}
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ROUTES MODAL */}
-      <Modal
-        visible={routeModalOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setRouteModalOpen(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.routesCard, { maxHeight: screenH * 0.75 }]}>
-            <View style={styles.modalHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Choose a route</Text>
-                <Text style={styles.routesSubtitle} numberOfLines={1}>
-                  {debugEndLabel
-                    ? `${debugStartLabel} → ${debugEndLabel}`
-                    : targetRoomName
-                    ? `To ${targetRoomName}`
-                    : 'Route options'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setRouteModalOpen(false)}
-                style={styles.modalClose}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.routesList} keyboardShouldPersistTaps="handled">
-              {paths.map((p, idx) => {
-                const active = idx === pathIndex
-                return (
-                  <TouchableOpacity
-                    key={idx}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      hapticSelection()
-                      setPathIndex(idx)
-                      setRouteModalOpen(false)
-                    }}
-                    style={[styles.routeCardItem, active && styles.routeCardItemActive]}
-                  >
-                    <View
-                      style={[
-                        styles.routeCardNumber,
-                        active && styles.routeCardNumberActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.routeCardNumberText,
-                          active && styles.routeCardNumberTextActive,
-                        ]}
-                      >
-                        {idx + 1}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[
-                          styles.routeCardTitle,
-                          active && styles.routeCardTitleActive,
-                        ]}
-                      >
-                        Route {idx + 1}
-                        {idx === 0 ? '  ·  Shortest' : ''}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.routeCardMeta,
-                          active && styles.routeCardMetaActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {p.length} stops · {getRouteSignature(p)}
-                      </Text>
-                      <View style={styles.routeCardStartEnd}>
-                        <View style={[styles.routeDot, { backgroundColor: '#059669' }]} />
-                        <Text style={styles.routeCardEndpoint} numberOfLines={1}>
-                          {p[0]?.label || 'Start'}
-                        </Text>
-                        <Text style={styles.routeCardArrow}>→</Text>
-                        <View style={[styles.routeDot, { backgroundColor: '#8B0000' }]} />
-                        <Text style={styles.routeCardEndpoint} numberOfLines={1}>
-                          {p[p.length - 1]?.label || 'End'}
-                        </Text>
-                      </View>
-                    </View>
-                    {active && (
-                      <View style={styles.routeCardCheck}>
-                        <Text style={styles.routeCardCheckText}>✓</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                )
-              })}
-            </ScrollView>
-            <TouchableOpacity
-              onPress={() => {
-                hapticLight()
-                setRouteModalOpen(false)
-              }}
-              style={styles.routesDoneButton}
-            >
-              <Text style={styles.routesDoneText}>Close</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1725,7 +2100,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 16,
-    maxWidth: 140,
+    maxWidth: 160,
   },
   floorBtnActive: { backgroundColor: '#8B0000' },
   floorBtnText: {
@@ -1913,36 +2288,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  routesFab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#8B0000',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
-    gap: 8,
-    shadowColor: '#8B0000',
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-    zIndex: 20,
-  },
-  routesFabIcon: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: -2,
-  },
-  routesFabText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
   scanQRFab: {
     position: 'absolute',
     left: 20,
@@ -1966,6 +2311,64 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.3,
   },
+
+  stepSheet: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+    maxHeight: 92,
+    overflow: 'hidden',
+    zIndex: 30,
+  },
+  stepSheetOpen: {
+    maxHeight: '60%',
+  },
+  stepSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  stepSheetIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFF5F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepSheetIcon: { fontSize: 18, color: '#8B0000', fontWeight: '800' },
+  stepSheetTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
+  stepSheetSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  stepSheetCount: { fontSize: 11, color: '#9CA3AF', fontWeight: '700' },
+  stepSheetChevron: { fontSize: 12, color: '#9CA3AF', marginLeft: 4 },
+  stepList: { maxHeight: 320 },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  stepRowActive: { backgroundColor: '#FFF5F5' },
+  stepRowIcon: {
+    fontSize: 16,
+    color: '#8B0000',
+    width: 24,
+    textAlign: 'center',
+  },
+  stepRowTitle: { fontSize: 13, fontWeight: '600', color: '#1A1A1A' },
+  stepRowSub: { fontSize: 11, color: '#9CA3AF', marginTop: 1 },
 
   footer: {
     paddingHorizontal: 20,
@@ -2028,65 +2431,6 @@ const styles = StyleSheet.create({
   modalItemLabel: { fontSize: 14, fontWeight: '600', color: '#1A1A1A', flex: 1 },
   modalItemCoord: { fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' },
   modalEmpty: { textAlign: 'center', paddingVertical: 30, color: '#9CA3AF', fontSize: 13 },
-
-  routesCard: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: 20,
-  },
-  routesSubtitle: { fontSize: 13, color: '#6B7280', marginTop: 2 },
-  routesList: { paddingHorizontal: 16, marginTop: 4 },
-  routeCardItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
-    marginBottom: 10,
-    gap: 14,
-  },
-  routeCardItemActive: { borderColor: '#8B0000', backgroundColor: '#FFF5F5' },
-  routeCardNumber: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F5F5F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  routeCardNumberActive: { backgroundColor: '#8B0000' },
-  routeCardNumberText: { fontSize: 15, fontWeight: '800', color: '#6B7280' },
-  routeCardNumberTextActive: { color: '#FFFFFF' },
-  routeCardTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
-  routeCardTitleActive: { color: '#8B0000' },
-  routeCardMeta: { fontSize: 12, color: '#6B7280', marginBottom: 6 },
-  routeCardMetaActive: { color: '#B91C1C' },
-  routeCardStartEnd: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  routeDot: { width: 7, height: 7, borderRadius: 3.5 },
-  routeCardEndpoint: { fontSize: 11, color: '#9CA3AF', fontWeight: '600', flexShrink: 1 },
-  routeCardArrow: { fontSize: 11, color: '#D1D5DB', marginHorizontal: 2 },
-  routeCardCheck: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#8B0000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  routeCardCheckText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
-  routesDoneButton: {
-    marginTop: 6,
-    marginHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#F5F5F7',
-    alignItems: 'center',
-  },
-  routesDoneText: { color: '#1A1A1A', fontSize: 15, fontWeight: '700' },
 })
 
 export default CampusMapScreen

@@ -20,6 +20,7 @@ import { useSemester } from '../../context/SemesterContext';
 import { navigate, navigationRef } from '../../navigation/navigationRef';
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
 import SemesterProgressStrip from '../../components/SemesterProgressStrip';
+import {autoCloseStaleSessions} from '../../utils/sessionTimeout';
 
 // ============================================================
 // DESIGN TOKENS
@@ -71,21 +72,21 @@ const TODAY_PREVIEW_LIMIT = 5;
 const REPORTED_BANNER_DURATION = 6000;
 
 const CAUSE_LABELS = {
-  professor: 'You could not attend',
-  students: 'No students showed up',
-  room: 'Room unavailable',
-  admin: 'Class moved online',
+  professor: 'Professor was unable to attend',
+  students: 'No students attended the class',
+  room: 'The assigned room was unavailable',
+  admin: 'Class was moved online by administration',
   other: 'Other reason',
 };
 
 const REASON_LABELS = {
-  official_duty: 'Official Duty',
+  official_duty: 'Official University Duty',
   medical: 'Medical / Sick Leave',
   emergency: 'Personal Emergency',
   personal: 'Personal Matter',
-  other_prof: 'Other',
+  other_prof: 'Other (Professor)',
   class_cancelled: 'Class Cancelled',
-  no_students: 'No Students',
+  no_students: 'No Students Attended',
   room_unavailable: 'Room Unavailable',
   moved_online: 'Moved Online',
   other: 'Other',
@@ -235,9 +236,9 @@ const stateSoftBg = (state) => {
 
 const getInlineStatusLabel = (status, cls) => {
   if (status === 'ghost') {
-    if (cls.ghostReport?.is_excused === true) return 'REPORTED · EXCUSED';
-    if (cls.ghostReport?.is_excused === false) return 'REPORTED · UNEXCUSED';
-    return 'REPORTED';
+    if (cls.ghostReport?.is_excused === true) return 'CANCELLED · EXCUSED';
+    if (cls.ghostReport?.is_excused === false) return 'CANCELLED · UNEXCUSED';
+    return 'CANCELLED';
   }
   if (status === 'ongoing') return 'IN PROGRESS';
   if (status === 'ended_early') return 'ENDED EARLY';
@@ -250,34 +251,48 @@ const getInlineStatusLabel = (status, cls) => {
 
 const getAvailableActions = (cls, nowMin) => {
   if (cls.ghostReport) {
-    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: false };
+    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
+
   if (cls.isOnline) {
-    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: true };
+    const start = timeToMinutes(cls.start_time);
+    const end = timeToMinutes(cls.end_time);
+    const hasSession = !!cls.liveSession;
+    const endedEarly = !!cls.liveSession?.ended_at;
+    const isPast = end !== null && nowMin > end;
+
+    return {
+      canScan: false,
+      canNavigate: false,
+      canEndEarly: false,
+      canReportGhost: !hasSession || isPast,
+      canStartOnline: !hasSession && !isPast && start !== null && nowMin >= start,
+      canEndOnline: hasSession && !endedEarly && !isPast,
+    };
   }
 
   const start = timeToMinutes(cls.start_time);
   const end = timeToMinutes(cls.end_time);
   if (start === null || end === null) {
-    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: true };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
   }
 
   const hasSession = !!cls.liveSession;
   const endedEarly = !!cls.liveSession?.ended_at;
 
   if (nowMin > end) {
-    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: !hasSession };
+    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: !hasSession, canStartOnline: false, canEndOnline: false };
   }
   if (nowMin < start) {
-    return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true };
+    return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
   }
   if (hasSession && !endedEarly) {
-    return { canScan: false, canNavigate: true, canEndEarly: true, canReportGhost: false };
+    return { canScan: false, canNavigate: true, canEndEarly: true, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
   if (hasSession && endedEarly) {
-    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: false };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
-  return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true };
+  return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
 };
 
 // ============================================================
@@ -305,8 +320,11 @@ const ProfessorDashboard = ({ navigation }) => {
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
 
+  // Prevent overlapping sweeps
+  const sweepingRef = useRef(false);
+
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60000);
+    const timer = setInterval(() => setNow(new Date()), 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -317,63 +335,17 @@ const ProfessorDashboard = ({ navigation }) => {
   }, []);
 
   // ============================================================
-  // LOGOUT
-  // ============================================================
-
-  const performLogout = async () => {
-    try {
-      setLoggingOut(true);
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-
-      setLogoutModalOpen(false);
-
-      try {
-        if (
-          navigationRef &&
-          typeof navigationRef.isReady === 'function' &&
-          navigationRef.isReady()
-        ) {
-          navigationRef.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            })
-          );
-        } else {
-          navigate('Login');
-        }
-      } catch (navErr) {
-        console.warn('[Logout] nav reset failed, falling back:', navErr);
-        navigate('Login');
-      }
-    } catch (err) {
-      console.error('[Logout] error:', err);
-      Alert.alert(
-        'Could not log out',
-        err?.message || 'Something went wrong. Please try again.'
-      );
-    } finally {
-      setLoggingOut(false);
-    }
-  };
-
-  const openLogoutModal = () => setLogoutModalOpen(true);
-  const closeLogoutModal = () => {
-    if (loggingOut) return;
-    setLogoutModalOpen(false);
-  };
-
-  // ============================================================
   // DATA LOAD
   // ============================================================
+  // `silent` = don't show the loading skeleton (used by the auto-sweep)
+  // ============================================================
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
 
       if (!user?.id) {
-        setLoading(false);
+        if (!silent) setLoading(false);
         return;
       }
 
@@ -397,7 +369,7 @@ const ProfessorDashboard = ({ navigation }) => {
       if (!semester?.id) {
         setTodayClasses([]);
         setNextClass(null);
-        setLoading(false);
+        if (!silent) setLoading(false);
         return;
       }
 
@@ -543,10 +515,12 @@ const ProfessorDashboard = ({ navigation }) => {
       }
     } catch (err) {
       console.error('Dashboard load error:', err);
-      Alert.alert('Error', 'Failed to load your schedule.');
+      if (!silent) Alert.alert('Error', 'Failed to load your schedule.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!silent) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [user, semester]);
 
@@ -559,6 +533,95 @@ const ProfessorDashboard = ({ navigation }) => {
   const onRefresh = () => {
     setRefreshing(true);
     loadDashboard();
+  };
+
+  // ============================================================
+  // AUTO-CLOSE STALE SESSIONS
+  // ------------------------------------------------------------
+  // Runs on focus + every 60s. Writes ended_at to room_sessions
+  // for any session whose schedule end_time has already passed.
+  // After a successful sweep, the dashboard silently refreshes.
+  // ============================================================
+  const runAutoTimeoutSweep = useCallback(async () => {
+    if (sweepingRef.current) return;
+    if (!user?.id) return;
+
+    sweepingRef.current = true;
+    try {
+      const closedCount = await autoCloseStaleSessions({
+        facultyId: user.id,
+      });
+
+      if (closedCount > 0) {
+        loadDashboard({ silent: true });
+      }
+    } finally {
+      sweepingRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, loadDashboard]);
+
+  // Run on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      runAutoTimeoutSweep();
+    }, [runAutoTimeoutSweep])
+  );
+
+  // Run periodically while mounted
+  useEffect(() => {
+    const interval = setInterval(() => {
+      runAutoTimeoutSweep();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [runAutoTimeoutSweep]);
+
+  // ============================================================
+  // LOGOUT
+  // ============================================================
+
+  const performLogout = async () => {
+    try {
+      setLoggingOut(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      setLogoutModalOpen(false);
+
+      try {
+        if (
+          navigationRef &&
+          typeof navigationRef.isReady === 'function' &&
+          navigationRef.isReady()
+        ) {
+          navigationRef.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            })
+          );
+        } else {
+          navigate('Login');
+        }
+      } catch (navErr) {
+        console.warn('[Logout] nav reset failed, falling back:', navErr);
+        navigate('Login');
+      }
+    } catch (err) {
+      console.error('[Logout] error:', err);
+      Alert.alert(
+        'Could not log out',
+        err?.message || 'Something went wrong. Please try again.'
+      );
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const openLogoutModal = () => setLogoutModalOpen(true);
+  const closeLogoutModal = () => {
+    if (loggingOut) return;
+    setLogoutModalOpen(false);
   };
 
   // ============================================================
@@ -592,7 +655,7 @@ const ProfessorDashboard = ({ navigation }) => {
     navigation.navigate('Map', { roomName: schedule.room_name });
   };
 
-  const handleReportGhost = (schedule) => {
+  const handleReportClass = (schedule) => {
     if (!schedule) return;
     closeDetail();
     navigation.navigate('ReportGhost', {
@@ -626,7 +689,48 @@ const ProfessorDashboard = ({ navigation }) => {
     });
   };
 
-  const handleQuickReportGhost = () => {
+  const handleStartOnlineClass = async (schedule) => {
+    if (!schedule || !user?.id) return;
+    try {
+      closeDetail();
+      const { error } = await supabase.from('room_sessions').insert({
+        schedule_id: schedule.id,
+        faculty_id: user.id,
+        room_id: schedule.room_id,
+        class_type: 'online',
+        status: 'ongoing',
+        scanned_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      Alert.alert('Success', 'Online class started.');
+      loadDashboard();
+    } catch (err) {
+      console.error('Start online class error:', err);
+      Alert.alert('Error', 'Failed to start online class.');
+    }
+  };
+
+  const handleEndOnlineClass = async (schedule) => {
+    if (!schedule || !schedule.liveSession?.id) return;
+    try {
+      closeDetail();
+      const { error } = await supabase
+        .from('room_sessions')
+        .update({
+          status: 'completed',
+          ended_at: new Date().toISOString(),
+        })
+        .eq('id', schedule.liveSession.id);
+      if (error) throw error;
+      Alert.alert('Success', 'Online class ended.');
+      loadDashboard();
+    } catch (err) {
+      console.error('End online class error:', err);
+      Alert.alert('Error', 'Failed to end online class.');
+    }
+  };
+
+  const handleQuickReportClass = () => {
     const target = todayClasses.find((c) => !c.ghostReport) || todayClasses[0];
     if (!target) {
       Alert.alert('No classes to report', 'You have no classes scheduled today that can be reported.');
@@ -636,7 +740,7 @@ const ProfessorDashboard = ({ navigation }) => {
       Alert.alert('Already Reported', 'All your classes today have already been reported.');
       return;
     }
-    handleReportGhost(target);
+    handleReportClass(target);
   };
 
   const openFullSchedule = () => navigation.navigate('FacultySchedule');
@@ -651,9 +755,16 @@ const ProfessorDashboard = ({ navigation }) => {
 
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const reportedCount = todayClasses.filter((c) => c.ghostReport).length;
-  const missedCount = todayClasses.filter(
+
+  const missedClasses = todayClasses.filter(
     (c) => getProfessorClassStatus(c, nowMin) === 'missed'
-  ).length;
+  );
+  const missedCount = missedClasses.length;
+  const allMissedOnline =
+    missedCount > 0 && missedClasses.every((c) => c.isOnline);
+  const allMissedOnsite =
+    missedCount > 0 && missedClasses.every((c) => !c.isOnline);
+
   const doneCount = todayClasses.filter((c) => {
     const s = getProfessorClassStatus(c, nowMin);
     return s === 'completed' || s === 'ended_early' || s === 'ghost';
@@ -771,20 +882,20 @@ const ProfessorDashboard = ({ navigation }) => {
 
         {/* ==================== STAT STRIP ==================== */}
         <View style={styles.statStrip}>
-          <StatBlock label="TODAY" value={todayClasses.length} tone="ink" />
+          <StatBlock label="CLASSES TODAY" value={todayClasses.length} tone="ink" />
           <View style={styles.statDivider} />
-          <StatBlock label="LEFT" value={remainingClasses.length} tone="amber" />
+          <StatBlock label="CLASSES LEFT" value={remainingClasses.length} tone="amber" />
           <View style={styles.statDivider} />
-          <StatBlock label="DONE" value={doneCount} tone="green" />
+          <StatBlock label="CLASSES DONE" value={doneCount} tone="green" />
           {reportedCount > 0 ? (
             <>
               <View style={styles.statDivider} />
-              <StatBlock label="REPORTED" value={reportedCount} tone="slate" />
+              <StatBlock label="CANCELLED CLASSES" value={reportedCount} tone="slate" />
             </>
           ) : missedCount > 0 ? (
             <>
               <View style={styles.statDivider} />
-              <StatBlock label="MISSED" value={missedCount} tone="red" />
+              <StatBlock label="MISSED CLASSES" value={missedCount} tone="red" />
             </>
           ) : null}
         </View>
@@ -794,7 +905,7 @@ const ProfessorDashboard = ({ navigation }) => {
           <Banner
             tone="green"
             title={`${reportedCount} ${reportedCount === 1 ? 'class' : 'classes'} reported today`}
-            body="Your Program Chair has been notified."
+            body="Your Program Chair has been notified of the cancellation."
           />
         )}
 
@@ -802,7 +913,13 @@ const ProfessorDashboard = ({ navigation }) => {
           <Banner
             tone="red"
             title={`${missedCount} ${missedCount === 1 ? 'class' : 'classes'} missed today`}
-            body="You didn't scan in. File a ghost report or contact your chair."
+            body={
+              allMissedOnline
+                ? "You didn't start the online session. Please report this class or contact your Program Chair."
+                : allMissedOnsite
+                ? "You didn't scan in. Please report this class or contact your Program Chair."
+                : "You didn't check in or start the session. Please report the class or contact your Program Chair."
+            }
           />
         )}
 
@@ -851,7 +968,7 @@ const ProfessorDashboard = ({ navigation }) => {
                   ]}
                 >
                   {nextStatus === 'ghost'
-                    ? 'REPORTED'
+                    ? 'CANCELLED'
                     : nextClass.isOnline
                     ? 'ONLINE'
                     : nextStatus === 'ongoing'
@@ -935,10 +1052,10 @@ const ProfessorDashboard = ({ navigation }) => {
               <Text style={styles.heroNoteText}>
                 {nextStatus === 'ghost'
                   ? nextClass.ghostReport.is_excused === true
-                    ? 'Your record is protected.'
-                    : 'Your Chair will review this report.'
+                    ? 'This cancellation is marked as excused.'
+                    : 'Your Program Chair will review this cancellation.'
                   : nextClass.isOnline
-                  ? 'Join virtually — no QR scan needed.'
+                  ? 'Join virtually — start the session to verify attendance.'
                   : nextStatus === 'ongoing'
                   ? nextClass.liveSession?.scanned_at
                     ? `Checked in at ${formatVerifiedTime(nextClass.liveSession.scanned_at)}.`
@@ -970,13 +1087,35 @@ const ProfessorDashboard = ({ navigation }) => {
 
               if (nextClass.isOnline) {
                 return (
-                  <TouchableOpacity
-                    style={styles.actionPrimary}
-                    onPress={() => handleReportGhost(nextClass)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.actionPrimaryText}>Report Ghost</Text>
-                  </TouchableOpacity>
+                  <>
+                    {acts.canStartOnline && (
+                      <TouchableOpacity
+                        style={styles.actionPrimary}
+                        onPress={() => handleStartOnlineClass(nextClass)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.actionPrimaryText}>Start Online Class</Text>
+                      </TouchableOpacity>
+                    )}
+                    {acts.canEndOnline && (
+                      <TouchableOpacity
+                        style={styles.actionOutlineAmber}
+                        onPress={() => handleEndOnlineClass(nextClass)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.actionOutlineAmberText}>End Online Class</Text>
+                      </TouchableOpacity>
+                    )}
+                    {!acts.canStartOnline && !acts.canEndOnline && (
+                       <TouchableOpacity
+                         style={styles.actionPrimary}
+                         onPress={() => setDetailClass(nextClass)}
+                         activeOpacity={0.85}
+                       >
+                         <Text style={styles.actionPrimaryText}>View Details</Text>
+                       </TouchableOpacity>
+                    )}
+                  </>
                 );
               }
 
@@ -1035,9 +1174,9 @@ const ProfessorDashboard = ({ navigation }) => {
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.actionGhost}
-                        onPress={() => handleReportGhost(nextClass)}
+                        onPress={() => handleReportClass(nextClass)}
                       >
-                        <Text style={styles.actionGhostText}>Report Ghost</Text>
+                        <Text style={styles.actionGhostText}>Report Class</Text>
                       </TouchableOpacity>
                     </View>
                   </>
@@ -1258,9 +1397,9 @@ const ProfessorDashboard = ({ navigation }) => {
             />
             <ToolCard
               icon="alert-triangle"
-              label="Report Ghost"
-              sub="Cancelled class"
-              onPress={handleQuickReportGhost}
+              label="Report Class"
+              sub="Report a cancelled class"
+              onPress={handleQuickReportClass}
               full
             />
           </View>
@@ -1320,10 +1459,10 @@ const ProfessorDashboard = ({ navigation }) => {
                         <View style={[styles.modalBadge, { backgroundColor: T.slateSoft }]}>
                           <Text style={[styles.modalBadgeText, { color: T.slate }]}>
                             {detailClass.ghostReport.is_excused === true
-                              ? 'REPORTED · EXCUSED'
+                              ? 'CANCELLED · EXCUSED'
                               : detailClass.ghostReport.is_excused === false
-                              ? 'REPORTED · UNEXCUSED'
-                              : 'REPORTED'}
+                              ? 'CANCELLED · UNEXCUSED'
+                              : 'CANCELLED'}
                           </Text>
                         </View>
                       ) : (
@@ -1394,14 +1533,16 @@ const ProfessorDashboard = ({ navigation }) => {
                       let subline = '';
 
                       if (isGhost) {
-                        headline = 'REPORTED ABSENT';
+                        headline = 'CLASS CANCELLED';
                         subline =
                           detailClass.ghostReport.is_excused === true
-                            ? 'Your record is protected.'
-                            : 'Your Chair will review this.';
+                            ? 'This cancellation is marked as excused.'
+                            : 'Your Program Chair will review this cancellation.';
                       } else if (status === 'ongoing') {
                         headline = 'IN PROGRESS';
-                        subline = 'You are checked in for this class.';
+                        subline = detailClass.isOnline
+                          ? 'Your online class session is active.'
+                          : 'You are checked in for this class.';
                       } else if (status === 'ended_early') {
                         headline = 'ENDED EARLY';
                         subline = detailClass.liveSession?.ended_at
@@ -1411,7 +1552,9 @@ const ProfessorDashboard = ({ navigation }) => {
                           : 'You ended this class early.';
                       } else if (status === 'starts_now') {
                         headline = 'STARTS NOW';
-                        subline = 'Scan the room QR to begin this class.';
+                        subline = detailClass.isOnline
+                          ? 'Start the online session to begin this class.'
+                          : 'Scan the room QR to begin this class.';
                       } else if (status === 'upcoming') {
                         headline = 'UPCOMING';
                         subline = `Class starts at ${formatTime(
@@ -1421,8 +1564,12 @@ const ProfessorDashboard = ({ navigation }) => {
                         headline = 'COMPLETED';
                         subline = 'Class has ended.';
                       } else if (status === 'missed') {
-                        headline = 'MISSED · NO CHECK-IN';
-                        subline = 'You did not scan in for this class.';
+                        headline = detailClass.isOnline
+                          ? 'MISSED · NOT STARTED'
+                          : 'MISSED · NO CHECK-IN';
+                        subline = detailClass.isOnline
+                          ? "You didn't start this online class session."
+                          : 'You did not scan in for this class.';
                       }
 
                       return (
@@ -1458,14 +1605,14 @@ const ProfessorDashboard = ({ navigation }) => {
 
                     {isGhost && (
                       <View style={styles.modalGhostBox}>
-                        <Text style={styles.modalGhostLabel}>REPORT DETAILS</Text>
+                        <Text style={styles.modalGhostLabel}>CANCELLATION DETAILS</Text>
                         <Text style={styles.modalGhostCause}>
-                          Cause:{' '}
+                          Primary Reason:{' '}
                           {CAUSE_LABELS[detailClass.ghostReport.cause] ||
                             detailClass.ghostReport.cause}
                         </Text>
                         <Text style={styles.modalGhostReason}>
-                          Reason:{' '}
+                          Detailed Reason:{' '}
                           {REASON_LABELS[detailClass.ghostReport.reason] ||
                             REASON_LABELS[detailClass.ghostReport.excused_reason] ||
                             detailClass.ghostReport.reason}
@@ -1507,10 +1654,27 @@ const ProfessorDashboard = ({ navigation }) => {
                           </TouchableOpacity>
                         )}
 
+                        {acts.canStartOnline && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={() => handleStartOnlineClass(detailClass)}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>Start Online Class</Text>
+                          </TouchableOpacity>
+                        )}
+                        {acts.canEndOnline && (
+                          <TouchableOpacity
+                            style={styles.modalEndEarlyBtn}
+                            onPress={() => handleEndOnlineClass(detailClass)}
+                          >
+                            <Text style={styles.modalEndEarlyBtnText}>End Online Class</Text>
+                          </TouchableOpacity>
+                        )}
+
                         {acts.canReportGhost && (
                           <TouchableOpacity
                             style={styles.modalGhostLinkInline}
-                            onPress={() => handleReportGhost(detailClass)}
+                            onPress={() => handleReportClass(detailClass)}
                           >
                             <Text style={styles.modalGhostLinkInlineText}>
                               Report this class as cancelled / not attended
@@ -1518,7 +1682,7 @@ const ProfessorDashboard = ({ navigation }) => {
                           </TouchableOpacity>
                         )}
 
-                        {!acts.canScan && !acts.canEndEarly && !acts.canReportGhost && !acts.canNavigate && (
+                        {!acts.canScan && !acts.canEndEarly && !acts.canReportGhost && !acts.canNavigate && !acts.canStartOnline && !acts.canEndOnline && (
                           <TouchableOpacity
                             style={styles.modalPrimaryBtn}
                             onPress={closeDetail}
@@ -1902,8 +2066,6 @@ const styles = StyleSheet.create({
   },
 
   // ==================== STAT STRIP ====================
-  // Now sits below the semester progress card — marginTop is
-  // positive (12) instead of -18.
   statStrip: {
     flexDirection: 'row',
     backgroundColor: T.surface,
@@ -1923,6 +2085,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     alignItems: 'center',
+    paddingHorizontal: 4,
   },
   statDivider: {
     width: 1,
@@ -1940,7 +2103,8 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: T.inkFaint,
     marginTop: 3,
-    letterSpacing: 1.4,
+    letterSpacing: 1.2,
+    textAlign: 'center',
   },
 
   // ==================== BANNERS ====================

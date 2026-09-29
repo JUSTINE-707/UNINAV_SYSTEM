@@ -1107,7 +1107,7 @@ import CampusMapScreen from '../../components/CampusMapScreen';
 export default function StudentMapScreen() {
   return (
     <CampusMapScreen
-      showDebugPanel={false}
+      showDebugPanel={true}
       headerEyebrow="CAMPUS MAP"
       defaultStartLabel="G1-WP1"
       showScanQRAfterRoute={false}

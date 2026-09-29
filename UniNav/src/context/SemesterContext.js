@@ -11,12 +11,26 @@ export const SemesterProvider = ({ children }) => {
   const [semester, setSemester] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  // Track previous semester to detect changes
+  const [previousId, setPreviousId] = useState(null)
+
   const load = async () => {
     const { data } = await supabase
       .from('semesters')
       .select('id, code, name, start_date, end_date')
       .eq('is_active', true)
       .maybeSingle()
+
+    // If the semester ID changed (and we had one before), notify
+    if (previousId && data?.id && data.id !== previousId) {
+      // Use Alert or your own toast component
+      Alert.alert(
+        'Semester Changed',
+        `The active semester is now ${data.name}.`
+      )
+    }
+
+    setPreviousId(data?.id || null)
     setSemester(data || null)
     setLoading(false)
   }

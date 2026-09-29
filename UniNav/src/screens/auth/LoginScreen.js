@@ -105,6 +105,12 @@ const LoginScreen = ({ navigation }) => {
     }
   }
 
+  // Guests are not signed in. They can only view the campus map.
+  const handleGuest = () => {
+    setErrorMsg('')
+    navigation.navigate('Map', { isGuest: true })
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -203,6 +209,32 @@ const LoginScreen = ({ navigation }) => {
               <Text style={styles.registerLink}>Register</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Guest divider */}
+          <View style={styles.orRow}>
+            <View style={styles.orLine} />
+            <Text style={styles.orText}>OR</Text>
+            <View style={styles.orLine} />
+          </View>
+
+          {/* Guest Button */}
+          <TouchableOpacity
+            style={[styles.guestCard, loading && styles.guestCardDisabled]}
+            onPress={handleGuest}
+            disabled={loading}
+            activeOpacity={0.75}
+          >
+            <View style={styles.guestIconChip}>
+              <Feather name="map" size={20} color={COLORS.white} />
+            </View>
+            <View style={styles.guestTextWrap}>
+              <Text style={styles.guestTitle}>Continue as Guest</Text>
+              <Text style={styles.guestSubtitle}>
+                Browse the campus map, no account needed
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={22} color={COLORS.primary} />
+          </TouchableOpacity>
 
         </View>
 
@@ -341,6 +373,61 @@ const styles = StyleSheet.create({
     fontSize: FONTS.medium,
     marginBottom: 12,
     textAlign: 'center',
+  },
+
+  // ==================== GUEST ====================
+  orRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 20,
+  },
+  orLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.lightGray,
+  },
+  orText: {
+    marginHorizontal: 12,
+    fontSize: FONTS.small,
+    fontWeight: '700',
+    color: COLORS.gray,
+    letterSpacing: 1.5,
+  },
+  guestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 14,
+    borderRadius: SIZES.borderRadius + 4,
+    borderWidth: 1,
+    borderColor: '#F0C9C9',
+    backgroundColor: '#FDF3F3',
+  },
+  guestCardDisabled: {
+    opacity: 0.5,
+  },
+  guestIconChip: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestTextWrap: {
+    flex: 1,
+  },
+  guestTitle: {
+    fontSize: FONTS.medium,
+    fontWeight: 'bold',
+    color: COLORS.black,
+  },
+  guestSubtitle: {
+    fontSize: FONTS.small,
+    color: COLORS.gray,
+    marginTop: 2,
+    lineHeight: 16,
   },
 })
 
