@@ -382,7 +382,7 @@ const EndClassEarlyScreen = () => {
               <Text style={styles.infoBannerText}>
                 The room frees up from this moment forward. Your Program Chair
                 will see the reason. This is{' '}
-                <Text style={{ fontWeight: '900' }}>not</Text> a ghost report
+                <Text style={{ fontWeight: '900' }}>not</Text> a class cancellation
                 — the class happened, it just ended early.
               </Text>
             </View>
