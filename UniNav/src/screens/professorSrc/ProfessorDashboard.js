@@ -175,13 +175,14 @@ const getProfessorClassStatus = (cls, nowMin) => {
 
   const hasSession = !!cls.liveSession;
   const endedEarly = !!cls.liveSession?.ended_at;
+  const isCompleted = cls.liveSession?.status === 'completed';
 
   if (nowMin > end) {
-    if (hasSession && endedEarly) return 'ended_early';
+    if (hasSession && endedEarly && !isCompleted) return 'ended_early';
     return hasSession ? 'completed' : 'missed';
   }
   if (nowMin >= start && nowMin <= end) {
-    if (hasSession && endedEarly) return 'ended_early';
+    if (hasSession && endedEarly) return isCompleted ? 'completed' : 'ended_early';
     return hasSession ? 'ongoing' : 'starts_now';
   }
   return 'upcoming';
@@ -251,7 +252,7 @@ const getInlineStatusLabel = (status, cls) => {
 
 const getAvailableActions = (cls, nowMin) => {
   if (cls.ghostReport) {
-    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: false, canEndEarly: false, canComplete: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
 
   if (cls.isOnline) {
@@ -265,6 +266,7 @@ const getAvailableActions = (cls, nowMin) => {
       canScan: false,
       canNavigate: false,
       canEndEarly: false,
+      canComplete: false,
       canReportGhost: !hasSession || isPast,
       canStartOnline: !hasSession && !isPast && start !== null && nowMin >= start,
       canEndOnline: hasSession && !endedEarly && !isPast,
@@ -274,25 +276,25 @@ const getAvailableActions = (cls, nowMin) => {
   const start = timeToMinutes(cls.start_time);
   const end = timeToMinutes(cls.end_time);
   if (start === null || end === null) {
-    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
   }
 
   const hasSession = !!cls.liveSession;
   const endedEarly = !!cls.liveSession?.ended_at;
 
-  if (nowMin > end) {
-    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: !hasSession, canStartOnline: false, canEndOnline: false };
+  if (nowMin >= end) {
+    return { canScan: false, canNavigate: false, canEndEarly: false, canComplete: hasSession && !endedEarly, canReportGhost: !hasSession, canStartOnline: false, canEndOnline: false };
   }
   if (nowMin < start) {
-    return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
+    return { canScan: true, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
   }
   if (hasSession && !endedEarly) {
-    return { canScan: false, canNavigate: true, canEndEarly: true, canReportGhost: false, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: true, canEndEarly: true, canComplete: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
   if (hasSession && endedEarly) {
-    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
-  return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
+  return { canScan: true, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
 };
 
 // ============================================================
@@ -488,7 +490,8 @@ const ProfessorDashboard = ({ navigation }) => {
         if (c.ghostReport) return false;
         if (c.liveSession?.ended_at) return false;
         const end = timeToMinutes(c.end_time);
-        return end !== null && nowMinutes < end;
+        const activeSession = !!c.liveSession && !c.liveSession.ended_at;
+        return end !== null && (nowMinutes < end || activeSession);
       });
 
       if (!upcoming) {
@@ -687,6 +690,55 @@ const ProfessorDashboard = ({ navigation }) => {
       startTime: schedule.start_time,
       endTime: schedule.end_time,
     });
+  };
+
+  const handleCompleteClass = async (schedule) => {
+    const sessionId = schedule?.liveSession?.id;
+    const endMin = timeToMinutes(schedule?.end_time);
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+
+    if (!sessionId || !user?.id) {
+      Alert.alert('No active session', 'Start the class before completing it.');
+      return;
+    }
+    if (!Number.isFinite(endMin) || nowMin < endMin) {
+      Alert.alert('Not time yet', 'You can complete this class at its scheduled end time.');
+      return;
+    }
+
+    const [hours, minutes, seconds = 0] = schedule.end_time.split(':').map(Number);
+    const scheduledEnd = new Date();
+    scheduledEnd.setHours(hours, minutes, seconds, 0);
+
+    try {
+      closeDetail();
+      const { data, error } = await supabase
+        .from('room_sessions')
+        .update({
+          status: 'completed',
+          ended_at: scheduledEnd.toISOString(),
+        })
+        .eq('id', sessionId)
+        .eq('faculty_id', user.id)
+        .eq('status', 'ongoing')
+        .is('ended_at', null)
+        .select('id')
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        Alert.alert('Already completed', 'This class session has already been closed.');
+        loadDashboard();
+        return;
+      }
+
+      Alert.alert('Success', 'Class completed at its scheduled end time.');
+      loadDashboard();
+    } catch (err) {
+      console.error('Complete class error:', err);
+      Alert.alert('Error', 'Failed to complete the class. Please try again.');
+    }
   };
 
   const handleStartOnlineClass = async (schedule) => {
@@ -1064,6 +1116,10 @@ const ProfessorDashboard = ({ navigation }) => {
                   ? nextClass.liveSession?.ended_at
                     ? `Ended at ${formatVerifiedTime(nextClass.liveSession.ended_at)}.`
                     : 'You ended this class early.'
+                  : nextStatus === 'completed'
+                  ? nextClass.liveSession?.ended_at
+                    ? `Completed at ${formatVerifiedTime(nextClass.liveSession.ended_at)}.`
+                    : 'Class time has ended.'
                   : nextStatus === 'starts_now'
                   ? 'Scan the room QR to begin this class.'
                   : `Class starts at ${formatTime(nextClass.start_time)}.`}
@@ -1147,6 +1203,18 @@ const ProfessorDashboard = ({ navigation }) => {
                       </TouchableOpacity>
                     </View>
                   </>
+                );
+              }
+
+              if (acts.canComplete) {
+                return (
+                  <TouchableOpacity
+                    style={styles.actionPrimary}
+                    onPress={() => handleCompleteClass(nextClass)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.actionPrimaryText}>Complete Class</Text>
+                  </TouchableOpacity>
                 );
               }
 
@@ -1645,6 +1713,15 @@ const ProfessorDashboard = ({ navigation }) => {
                           </TouchableOpacity>
                         )}
 
+                        {acts.canComplete && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={() => handleCompleteClass(detailClass)}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>Complete Class</Text>
+                          </TouchableOpacity>
+                        )}
+
                         {acts.canScan && (
                           <TouchableOpacity
                             style={styles.modalPrimaryBtn}
@@ -1682,7 +1759,7 @@ const ProfessorDashboard = ({ navigation }) => {
                           </TouchableOpacity>
                         )}
 
-                        {!acts.canScan && !acts.canEndEarly && !acts.canReportGhost && !acts.canNavigate && !acts.canStartOnline && !acts.canEndOnline && (
+                        {!acts.canScan && !acts.canEndEarly && !acts.canComplete && !acts.canReportGhost && !acts.canNavigate && !acts.canStartOnline && !acts.canEndOnline && (
                           <TouchableOpacity
                             style={styles.modalPrimaryBtn}
                             onPress={closeDetail}

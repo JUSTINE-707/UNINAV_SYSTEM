@@ -358,6 +358,31 @@ const QRScannerScreen = () => {
       }
 
       const classType = 'in-person';
+      const { data: existingSession, error: sessionError } = await supabase
+        .from('room_sessions')
+        .select('id')
+        .eq('schedule_id', activeSchedule.id)
+        .eq('faculty_id', faculty.id)
+        .order('scanned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (sessionError) throw sessionError;
+      if (existingSession) {
+        setResult({
+          success: true,
+          alreadyVerified: true,
+          room: room.room_code,
+          subject: activeSchedule.subject_code,
+          section: activeSchedule.section,
+          courseTitle: activeSchedule.course_title,
+          classType,
+          time: `${formatTime(activeSchedule.start_time)} – ${formatTime(
+            activeSchedule.end_time
+          )}`,
+        });
+        return;
+      }
 
       const { error: insertError } = await supabase
         .from('room_sessions')
@@ -556,8 +581,9 @@ const QRScannerScreen = () => {
               </View>
 
               <Text style={styles.resultNote}>
-                Room status has been updated. Students can now see this
-                class is officially in session.
+                {result.alreadyVerified
+                  ? 'This class was already verified. No new session was created.'
+                  : 'Room status has been updated. Students can now see this class is officially in session.'}
               </Text>
             </>
           ) : (
@@ -584,23 +610,33 @@ const QRScannerScreen = () => {
         </ScrollView>
 
         <View style={styles.resultFooter}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={resetScanner}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryButtonText}>
-              {result.success ? 'Scan Another' : 'Try Again'}
-            </Text>
-          </TouchableOpacity>
+          {result.success ? (
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.primaryButtonText}>Back to Dashboard</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={resetScanner}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryButtonText}>Try Again</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => navigation.goBack()}
-            activeOpacity={0.75}
-          >
-            <Text style={styles.secondaryButtonText}>Back to Dashboard</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => navigation.goBack()}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.secondaryButtonText}>Back to Dashboard</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
     );

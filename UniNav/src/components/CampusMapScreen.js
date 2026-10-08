@@ -130,33 +130,100 @@ const getFloorLabel = (buildingId, floorLevel, buildings) => {
 // NODE DESCRIPTIONS
 // ============================================================
 
-const describeNode = (node, path, idx) => {
-  if (!node) return ''
-  if (node.display_label) return node.display_label
+// Codes like G1-WP1, JGYM-WP, HEB-WP1, MF-WP, STAIRS-L-R are
+// breadcrumbs for the pathfinding algorithm, not for humans.
+// Never surface these to the user.
+const INTERNAL_CODE = /^[A-Z0-9]{2,}(?:-[A-Z0-9]+)+$/i
 
-  const label = node.label || ''
+const isInternalLabel = (label) => {
+  if (!label) return true
+  const t = String(label).trim()
+  if (!t) return true
+  if (INTERNAL_CODE.test(t)) return true
+  // Bare tokens like "WP", "NODE12", "X1" also count as internal
+  if (/^(WP|NODE|PT|P)\d*$/i.test(t)) return true
+  return false
+}
+
+const cleanLabel = (label) => (isInternalLabel(label) ? '' : String(label).trim())
+
+const roomTypeNoun = (roomType) => {
+  if (!roomType) return 'classroom'
+  const t = roomType.toLowerCase()
+  if (t.includes('lab')) return 'laboratory'
+  if (t.includes('office')) return 'office'
+  if (t === 'cr' || t.includes('restroom') || t.includes('comfort')) return 'comfort room'
+  if (t.includes('library')) return 'library'
+  if (t.includes('gym')) return 'gymnasium'
+  if (t.includes('cafe') || t.includes('canteen')) return 'cafeteria'
+  return 'classroom'
+}
+
+const describeNode = (node, path, idx, rooms = [], buildings = []) => {
+  if (!node) return ''
+
+  // 1. Room lookup by nav_node_id — most specific
+  const room = rooms.find((r) => r.nav_node_id === node.id)
+  if (room) {
+    const noun = roomTypeNoun(room.room_type)
+    if (noun === 'comfort room') return 'the comfort room'
+    if (noun === 'office') return `the ${room.room_code} office`
+    if (noun === 'laboratory') return `the ${room.room_code} laboratory`
+    return `room ${room.room_code}`
+  }
+
+  // 2. Building lookup — covers every landmark node
+  const bldg = buildings.find((b) => b.id === node.building_id)
+  const buildingName = bldg?.name || null
+
+  // 3. Structural node types (within a building)
+  const label = cleanLabel(node.label)
 
   if (node.node_type === 'stairs' || /STAIRS/i.test(label)) {
-    const side = sideOf(label)
-    return side ? `${cap(side)} stairwell` : 'Stairwell'
+    const side = sideOf(node.label || '')
+    return side ? `the ${side} stairwell` : 'the stairwell'
   }
-  if (node.node_type === 'elevator' || /ELEV/i.test(label)) return 'Elevator'
-  if (node.node_type === 'entrance' || /ENTRANCE|ENT$/i.test(label))
-    return 'Building entrance'
-  if (node.node_type === 'gate' || /GATE|^G\d-WP/i.test(label))
-    return 'Campus gate'
-  if (node.node_type === 'door' || /DOOR/i.test(label)) return 'Room door'
-  if (node.node_type === 'landmark') return label
+  if (node.node_type === 'elevator' || /ELEV/i.test(label)) return 'the elevator'
 
-  if (node.node_type === 'waypoint') {
-    const prev = path?.[idx - 1]
-    const next = path?.[idx + 1]
-    if (next && next.node_type === 'landmark') return `Approaching ${next.label}`
-    if (prev && prev.node_type === 'landmark') return `Leaving ${prev.label}`
+  if (node.node_type === 'entrance' || /ENTRANCE|ENT$/i.test(label)) {
+    return buildingName ? `the entrance to ${buildingName}` : 'the building entrance'
+  }
+  if (node.node_type === 'gate' || /GATE|^G\d-WP/i.test(label)) {
+    return label ? `the ${label} gate` : 'the campus gate'
+  }
+  if (node.node_type === 'door' || /DOOR/i.test(label)) {
+    return 'the doorway'
+  }
+
+  // 4. Landmark — building name wins over the raw label
+  if (node.node_type === 'landmark') {
+    if (buildingName) return buildingName
+    if (label) return label
     return ''
   }
 
-  return ''
+  // 5. Waypoint — narrate via nearby landmark's building name
+  if (node.node_type === 'waypoint') {
+    const prev = path?.[idx - 1]
+    const next = path?.[idx + 1]
+
+    if (next && next.node_type === 'landmark') {
+      const nb = buildings.find((bb) => bb.id === next.building_id)
+      if (nb?.name) return `you'll pass ${nb.name}`
+      const nl = cleanLabel(next.label)
+      if (nl) return `you'll pass ${nl}`
+    }
+    if (prev && prev.node_type === 'landmark') {
+      const pb = buildings.find((bb) => bb.id === prev.building_id)
+      if (pb?.name) return `past ${pb.name}`
+      const pl = cleanLabel(prev.label)
+      if (pl) return `past ${pl}`
+    }
+    return ''
+  }
+
+  // 6. Last resort — cleaned label, or building name
+  return label || buildingName || ''
 }
 
 // ============================================================
@@ -256,47 +323,112 @@ const computeArrows = (points, spacing) => {
 // STEP GENERATION
 // ============================================================
 
-const generateSteps = (path, buildings, destinationName) => {
+// Rough meter estimate. If your nav_edges.distance is already in
+// meters, replace segmentDistance() with an edge lookup by
+// `${from.id}::${to.id}`.
+const METERS_PER_UNIT = 0.05 // tune to your floor plan scale
+const segmentDistance = (a, b) => {
+  const dx = Number(b.coord_x) - Number(a.coord_x)
+  const dy = Number(b.coord_y) - Number(a.coord_y)
+  return Math.sqrt(dx * dx + dy * dy) * METERS_PER_UNIT
+}
+
+const MIN_WALK_METERS = 5 // ignore trivial hops
+
+const generateSteps = (path, buildings, destinationName, rooms = []) => {
   if (!path || path.length < 2) return []
 
   const steps = []
-  let pendingStraight = 0
 
-  const flushStraight = (from, to) => {
-    if (pendingStraight <= 0) return
-    const contextName = describeNode(to, path, path.indexOf(to))
+  // ---- 1. Starting cue (only if start is human-readable) ----
+  const startNode = path[0]
+  const startRoom = rooms.find((r) => r.nav_node_id === startNode.id)
+  const startBuilding = buildings.find((b) => b.id === startNode.building_id)
+
+  const startLabel =
+    (startRoom ? `room ${startRoom.room_code}` : '') ||
+    startBuilding?.name ||
+    cleanLabel(startNode.label)
+
+  if (startLabel) {
+    steps.push({
+      icon: '📍',
+      title: `Starting from ${startLabel}`,
+      subtitle: getFloorShort(startNode, buildings),
+      floor: startNode.floor_level,
+      buildingId: startNode.building_id,
+      nodeId: startNode.id,
+      isStart: true,
+    })
+  }
+
+  // ---- 2. Walk the path, flushing accumulated "straight" runs ----
+  let pendingDist = 0
+  let pendingEnd = null // last node in the straight run
+
+  const flushStraight = () => {
+    if (pendingDist < MIN_WALK_METERS) {
+      pendingDist = 0
+      pendingEnd = null
+      return
+    }
+    const meters = Math.max(5, Math.round(pendingDist / 5) * 5)
+    const context = describeNode(
+      pendingEnd,
+      path,
+      path.indexOf(pendingEnd),
+      rooms,
+      buildings
+    )
     steps.push({
       icon: '↑',
-      title: 'Continue straight',
-      subtitle: contextName || 'Follow the highlighted route',
-      floor: from.floor_level,
-      buildingId: from.building_id,
-      nodeId: from.id,
+      title: `Walk straight for about ${meters} m`,
+      subtitle: context || 'Follow the highlighted path',
+      floor: pendingEnd.floor_level,
+      buildingId: pendingEnd.building_id,
+      nodeId: pendingEnd.id,
     })
-    pendingStraight = 0
+    pendingDist = 0
+    pendingEnd = null
   }
 
   for (let i = 0; i < path.length - 1; i++) {
     const from = path[i]
     const to = path[i + 1]
 
+    const isLastEdge = i === path.length - 2
     const isFloorUp =
       to.node_type === 'stairs' && to.floor_level > from.floor_level
     const isFloorDown =
       to.node_type === 'stairs' && to.floor_level < from.floor_level
     const isElevator = to.node_type === 'elevator'
     const isFloorChange = from.floor_level !== to.floor_level
-    const isDestination = i === path.length - 2
+    const isTurnNode = turnDirection(path, i) !== 'straight'
 
-    if (isDestination) {
-      flushStraight(from, to)
+    // ---- Destination ----
+    if (isLastEdge) {
+      flushStraight()
+
+      const destRoom = rooms.find((r) => r.nav_node_id === to.id)
+      const destBuilding = buildings.find((b) => b.id === to.building_id)
+      const destFloor = getFloorShort(to, buildings)
+
+      let destTitle
+      if (destRoom) {
+        destTitle = `You've arrived at room ${destRoom.room_code}`
+      } else if (destBuilding?.name) {
+        destTitle = `You've arrived at ${destBuilding.name}`
+      } else {
+        const cleanDest = cleanLabel(destinationName)
+        destTitle = cleanDest
+          ? `You've arrived at ${cleanDest}`
+          : "You've arrived at your destination"
+      }
+
       steps.push({
         icon: '🏁',
-        title:
-          destinationName && destinationName !== to.label
-            ? `Arrive at ${destinationName}`
-            : 'Arrive at your destination',
-        subtitle: 'You have reached the end of the highlighted route',
+        title: destTitle,
+        subtitle: destFloor ? `On the ${destFloor}` : '',
         floor: to.floor_level,
         buildingId: to.building_id,
         nodeId: to.id,
@@ -305,15 +437,13 @@ const generateSteps = (path, buildings, destinationName) => {
       continue
     }
 
-    if (isFloorUp || isElevator) {
-      flushStraight(from, to)
-      const side = sideOf(to.label)
+    // ---- Elevator ----
+    if (isElevator) {
+      flushStraight()
       steps.push({
-        icon: isElevator ? '🛗' : '🔼',
-        title: isElevator
-          ? `Take the elevator to ${getFloorShort(to, buildings)}`
-          : `Go up to ${getFloorShort(to, buildings)}`,
-        subtitle: side ? `Take the ${side} stairs` : 'Follow the stairs',
+        icon: '🛗',
+        title: `Take the elevator to the ${getFloorShort(to, buildings)}`,
+        subtitle: 'Exit and continue on the highlighted route',
         floor: to.floor_level,
         buildingId: to.building_id,
         nodeId: to.id,
@@ -321,13 +451,15 @@ const generateSteps = (path, buildings, destinationName) => {
       continue
     }
 
-    if (isFloorDown) {
-      flushStraight(from, to)
-      const side = sideOf(to.label)
+    // ---- Stairs up / down ----
+    if (isFloorUp || isFloorDown) {
+      flushStraight()
+      const side = sideOf(to.label || '')
+      const dirWord = isFloorUp ? 'up' : 'down'
       steps.push({
-        icon: '🔽',
-        title: `Go down to ${getFloorShort(to, buildings)}`,
-        subtitle: side ? `Take the ${side} stairs` : 'Follow the stairs',
+        icon: isFloorUp ? '🔼' : '🔽',
+        title: `Head ${dirWord} to the ${getFloorShort(to, buildings)}`,
+        subtitle: side ? `Use the ${side} stairwell` : 'Use the nearest stairwell',
         floor: to.floor_level,
         buildingId: to.building_id,
         nodeId: to.id,
@@ -335,12 +467,13 @@ const generateSteps = (path, buildings, destinationName) => {
       continue
     }
 
+    // ---- Other floor/building change (rare fallback) ----
     if (isFloorChange) {
-      flushStraight(from, to)
+      flushStraight()
       steps.push({
         icon: '⇅',
-        title: `Continue to ${getFloorShort(to, buildings)}`,
-        subtitle: describeNode(to, path, i + 1),
+        title: `Continue to the ${getFloorShort(to, buildings)}`,
+        subtitle: describeNode(to, path, i + 1, rooms, buildings) || '',
         floor: to.floor_level,
         buildingId: to.building_id,
         nodeId: to.id,
@@ -348,23 +481,29 @@ const generateSteps = (path, buildings, destinationName) => {
       continue
     }
 
-    const turn = turnDirection(path, i)
-
-    if (turn === 'straight') {
-      pendingStraight += 1
+    // ---- Turn ----
+    if (isTurnNode) {
+      flushStraight()
+      const turn = turnDirection(path, i)
+      const context = describeNode(to, path, i + 1, rooms, buildings)
+      steps.push({
+        icon: turn === 'left' ? '↰' : '↱',
+        title: turn === 'left' ? 'Turn left' : 'Turn right',
+        subtitle: context || 'Continue along the corridor',
+        floor: to.floor_level,
+        buildingId: to.building_id,
+        nodeId: to.id,
+      })
+      // Reset accumulator — the turn node itself is where the next
+      // straight run begins.
+      pendingDist = 0
+      pendingEnd = to
       continue
     }
 
-    flushStraight(from, to)
-
-    steps.push({
-      icon: turn === 'left' ? '↰' : '↱',
-      title: turn === 'left' ? 'Turn left' : 'Turn right',
-      subtitle: describeNode(to, path, i + 1),
-      floor: to.floor_level,
-      buildingId: to.building_id,
-      nodeId: to.id,
-    })
+    // ---- Straight: accumulate ----
+    pendingDist += segmentDistance(from, to)
+    pendingEnd = to
   }
 
   return steps
@@ -441,9 +580,39 @@ const CampusMapScreen = ({
 
   const path = paths[0] || []
 
+  // ============================================================
+  // DESTINATION DISPLAY NAME
+  // ============================================================
+  // The routing key (targetRoomName) must stay raw so computeRoute
+  // can find the node. This derived value is only for showing the
+  // user a friendly name.
+
+  const destinationDisplayName = useMemo(() => {
+    if (!targetRoomName) return ''
+
+    // If it's a room code, show it as-is
+    const room = rooms.find((r) => r.room_code === targetRoomName)
+    if (room) return room.room_code
+
+    // If it's a node label, resolve to building/room name
+    const node = nodes.find(
+      (n) => n.label?.toUpperCase() === targetRoomName?.toUpperCase()
+    )
+    if (node) {
+      const r2 = rooms.find((r) => r.nav_node_id === node.id)
+      if (r2) return r2.room_code
+      const b = buildings.find((bb) => bb.id === node.building_id)
+      if (b?.name) return b.name
+      return cleanLabel(node.label) || 'your destination'
+    }
+
+    // Raw string the user typed — clean it as best we can
+    return cleanLabel(targetRoomName) || 'your destination'
+  }, [targetRoomName, rooms, nodes, buildings])
+
   const steps = useMemo(
-    () => generateSteps(path, buildings, targetRoomName),
-    [path, buildings, targetRoomName]
+    () => generateSteps(path, buildings, destinationDisplayName, rooms),
+    [path, buildings, destinationDisplayName, rooms]
   )
 
   // ============================================================
@@ -1281,7 +1450,7 @@ const CampusMapScreen = ({
             {isBrowsing ? headerEyebrow : 'CAMPUS ROUTE'}
           </Text>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {targetRoomName ||
+            {destinationDisplayName ||
               (hasRoute && debugEndLabel
                 ? `${debugStartLabel} → ${debugEndLabel}`
                 : pinnedLocation
@@ -1853,7 +2022,7 @@ const CampusMapScreen = ({
               </View>
               <Text style={styles.routeSummary} numberOfLines={2}>
                 {path.length} steps ·{' '}
-                {targetRoomName ||
+                {destinationDisplayName ||
                   (debugEndLabel ? `${debugStartLabel} → ${debugEndLabel}` : '')}
               </Text>
             </>

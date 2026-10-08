@@ -63,19 +63,6 @@ const rankOf = (position = '') => {
   return 8
 }
 
-// Short label for the position (keeps card titles compact)
-const ROLE_TAG = (position = '') => {
-  const p = position.toLowerCase()
-  if (p.includes('president') && !p.includes('vice')) return 'PRESIDENT'
-  if (p.includes('vice president') || p.startsWith('vp ')) return 'VICE PRES'
-  if (p.includes('chancellor')) return 'CHANCELLOR'
-  if (p.includes('dean')) return 'DEAN'
-  if (p.includes('director')) return 'DIRECTOR'
-  if (p.includes('chair') || p.includes('head')) return 'CHAIR'
-  if (p.includes('coordinator')) return 'COORD'
-  return 'OFFICIAL'
-}
-
 // ============================================================
 // SCREEN
 // ============================================================
@@ -156,7 +143,7 @@ const OfficialsScreen = () => {
     const groups = {}
 
     filtered.forEach((o) => {
-      const key = o.college?.trim() ? o.college.trim() : 'University Administration'
+      const key = o.college?.trim() ? o.college.trim() : 'University Officials'
       if (!groups[key]) groups[key] = []
       groups[key].push(o)
     })
@@ -172,8 +159,8 @@ const OfficialsScreen = () => {
         }),
       }))
       .sort((a, b) => {
-        if (a.title === 'University Administration') return -1
-        if (b.title === 'University Administration') return 1
+        if (a.title === 'University Officials') return -1
+        if (b.title === 'University Officials') return 1
         return a.title.localeCompare(b.title)
       })
   }, [filtered])
@@ -343,8 +330,6 @@ const OfficialsScreen = () => {
               .trim()
               .charAt(0)
               .toUpperCase()
-            const roleTag = ROLE_TAG(item.position || '')
-
             return (
               <TouchableOpacity
                 style={[styles.card, expanded && styles.cardExpanded]}
@@ -362,9 +347,6 @@ const OfficialsScreen = () => {
                     </Text>
 
                     <View style={styles.metaLineRow}>
-                      <View style={styles.roleTag}>
-                        <Text style={styles.roleTagText}>{roleTag}</Text>
-                      </View>
                       {item.college ? (
                         <Text
                           style={styles.metaLine}
@@ -776,18 +758,6 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 5,
     flexWrap: 'wrap',
-  },
-  roleTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: T.crimson,
-  },
-  roleTagText: {
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 1,
-    color: '#FFFFFF',
   },
   metaLine: {
     fontSize: 10,

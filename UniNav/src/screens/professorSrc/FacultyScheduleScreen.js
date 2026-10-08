@@ -200,6 +200,7 @@ const getLiveStatus = (cls, nowMin, todayCode) => {
   const end = timeToMinutes(cls.end_time);
   const hasSession = !!cls.liveSession;
   const endedEarly = !!cls.liveSession?.ended_at;
+  const isCompleted = cls.liveSession?.status === 'completed';
   const online = cls.isOnline;
 
   // ---------- ONLINE CLASSES ----------
@@ -270,8 +271,8 @@ const getLiveStatus = (cls, nowMin, todayCode) => {
   // ---------- FACE-TO-FACE CLASSES ----------
   if (start === null || end === null) return null;
 
-  if (nowMin > end) {
-    if (hasSession && endedEarly) {
+  if (nowMin > end || isCompleted) {
+    if (hasSession && endedEarly && !isCompleted) {
       return {
         roomState: 'ended_early',
         icon: '⏹',
@@ -284,8 +285,10 @@ const getLiveStatus = (cls, nowMin, todayCode) => {
     return {
       roomState: 'ended',
       icon: '·',
-      headline: 'CLASS ENDED',
-      subline: hasSession
+      headline: isCompleted ? 'CLASS COMPLETED' : 'CLASS ENDED',
+      subline: hasSession && cls.liveSession.ended_at
+        ? `Completed at ${formatVerifiedTime(cls.liveSession.ended_at)}`
+        : hasSession
         ? `You checked in at ${formatVerifiedTime(cls.liveSession.scanned_at)}`
         : 'Room was never verified',
     };
@@ -302,6 +305,14 @@ const getLiveStatus = (cls, nowMin, todayCode) => {
 
   if (hasSession) {
     if (endedEarly) {
+      if (isCompleted) {
+        return {
+          roomState: 'ended',
+          icon: '·',
+          headline: 'CLASS COMPLETED',
+          subline: `Completed at ${formatVerifiedTime(cls.liveSession.ended_at)}`,
+        };
+      }
       return {
         roomState: 'ended_early',
         icon: '⏹',
@@ -357,7 +368,7 @@ const stateSoftBg = (state) => {
 // ------------------------------------------------------------
 const getAvailableActions = (cls, nowMin, todayCode) => {
   if (cls.ghostReport) {
-    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: false, canEndEarly: false, canComplete: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
 
   if (cls.isOnline) {
@@ -371,6 +382,7 @@ const getAvailableActions = (cls, nowMin, todayCode) => {
       canScan: false,
       canNavigate: false,
       canEndEarly: false,
+      canComplete: false,
       canReportGhost: !hasSession,
       // Only today's online classes can be started/ended, and only until they end
       canStartOnline: isToday && !hasSession && !isPast,
@@ -382,7 +394,7 @@ const getAvailableActions = (cls, nowMin, todayCode) => {
   const end = timeToMinutes(cls.end_time);
 
   if (start === null || end === null) {
-    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
   }
 
   const hasSession = !!cls.liveSession;
@@ -394,25 +406,26 @@ const getAvailableActions = (cls, nowMin, todayCode) => {
       canScan: !hasSession,
       canNavigate: true,
       canEndEarly: hasSession && !endedEarly,
+      canComplete: false,
       canReportGhost: !hasSession,
       canStartOnline: false,
       canEndOnline: false,
     };
   }
 
-  if (nowMin > end) {
-    return { canScan: false, canNavigate: false, canEndEarly: false, canReportGhost: !hasSession, canStartOnline: false, canEndOnline: false };
+  if (nowMin >= end) {
+    return { canScan: false, canNavigate: false, canEndEarly: false, canComplete: hasSession && !endedEarly, canReportGhost: !hasSession, canStartOnline: false, canEndOnline: false };
   }
   if (nowMin < start) {
-    return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
+    return { canScan: true, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
   }
   if (hasSession && !endedEarly) {
-    return { canScan: false, canNavigate: true, canEndEarly: true, canReportGhost: false, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: true, canEndEarly: true, canComplete: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
   if (hasSession && endedEarly) {
-    return { canScan: false, canNavigate: true, canEndEarly: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
+    return { canScan: false, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: false, canStartOnline: false, canEndOnline: false };
   }
-  return { canScan: true, canNavigate: true, canEndEarly: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
+  return { canScan: true, canNavigate: true, canEndEarly: false, canComplete: false, canReportGhost: true, canStartOnline: false, canEndOnline: false };
 };
 
 // ============================================================
@@ -757,6 +770,55 @@ const FacultyScheduleScreen = () => {
     } catch (err) {
       console.error('End online class error:', err);
       Alert.alert('Error', 'Failed to end online class.');
+    }
+  };
+
+  const handleCompleteClass = async (schedule) => {
+    const sessionId = schedule?.liveSession?.id;
+    const endMin = timeToMinutes(schedule?.end_time);
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+
+    if (!sessionId || !user?.id) {
+      Alert.alert('No active session', 'Start the class before completing it.');
+      return;
+    }
+    if (!Number.isFinite(endMin) || nowMin < endMin) {
+      Alert.alert('Not time yet', 'You can complete this class at its scheduled end time.');
+      return;
+    }
+
+    const [hours, minutes, seconds = 0] = schedule.end_time.split(':').map(Number);
+    const scheduledEnd = new Date();
+    scheduledEnd.setHours(hours, minutes, seconds, 0);
+
+    try {
+      closeDetail();
+      const { data, error } = await supabase
+        .from('room_sessions')
+        .update({
+          status: 'completed',
+          ended_at: scheduledEnd.toISOString(),
+        })
+        .eq('id', sessionId)
+        .eq('faculty_id', user.id)
+        .eq('status', 'ongoing')
+        .is('ended_at', null)
+        .select('id')
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        Alert.alert('Already completed', 'This class session has already been closed.');
+        loadSchedule();
+        return;
+      }
+
+      Alert.alert('Success', 'Class completed at its scheduled end time.');
+      loadSchedule();
+    } catch (err) {
+      console.error('Complete class error:', err);
+      Alert.alert('Error', 'Failed to complete the class. Please try again.');
     }
   };
 
@@ -1390,6 +1452,17 @@ const FacultyScheduleScreen = () => {
                           </TouchableOpacity>
                         )}
 
+                        {acts.canComplete && (
+                          <TouchableOpacity
+                            style={styles.modalPrimaryBtn}
+                            onPress={() => handleCompleteClass(detailClass)}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>
+                              Complete Class
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
                         {acts.canScan && (
                           <TouchableOpacity
                             style={styles.modalPrimaryBtn}
@@ -1432,6 +1505,7 @@ const FacultyScheduleScreen = () => {
 
                         {!acts.canScan &&
                           !acts.canEndEarly &&
+                          !acts.canComplete &&
                           !acts.canReportGhost &&
                           !acts.canNavigate &&
                           !acts.canStartOnline &&
