@@ -244,7 +244,40 @@ const ReportGhostScreen = () => {
 
       if (cancelled) return;
 
-      const available = scheduleData.filter((s) => !reportedIds.has(s.id));
+      const scheduleIds = scheduleData.map((schedule) => schedule.id);
+      let completedIds = new Set();
+      if (scheduleIds.length > 0) {
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('room_sessions')
+          .select('schedule_id, status, ended_at')
+          .eq('faculty_id', user.id)
+          .in('schedule_id', scheduleIds);
+
+        if (cancelled) return;
+        if (sessionError) {
+          console.error('Completed class lookup error:', sessionError);
+          Alert.alert(
+            'Unable to load classes',
+            'We could not verify which classes are already completed. Please try again.'
+          );
+          setTodayClasses([]);
+          setSelectedClass(null);
+          setLoading(false);
+          setPickerLoading(false);
+          return;
+        }
+
+        completedIds = new Set(
+          (sessionData || [])
+            .filter((session) => session.status === 'completed' || session.ended_at)
+            .map((session) => session.schedule_id)
+        );
+      }
+
+      const available = scheduleData.filter(
+        (schedule) =>
+          !reportedIds.has(schedule.id) && !completedIds.has(schedule.id)
+      );
       setTodayClasses(available);
 
       const pre =
@@ -375,7 +408,7 @@ const ReportGhostScreen = () => {
               <View style={{ width: 34 }} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.headerEyebrow}>FACULTY</Text>
-                <Text style={styles.headerTitle}>Report Ghost Class</Text>
+                <Text style={styles.headerTitle}>Report Class Cancellation</Text>
               </View>
               <View style={{ width: 34 }} />
             </View>
@@ -521,7 +554,7 @@ const ReportGhostScreen = () => {
               </TouchableOpacity>
               <View style={{ flex: 1, paddingLeft: 12 }}>
                 <Text style={styles.headerEyebrow}>FACULTY</Text>
-                <Text style={styles.headerTitle}>Report Ghost Class</Text>
+                <Text style={styles.headerTitle}>Report Class Cancellation</Text>
               </View>
               <View style={{ width: 34 }} />
             </View>
@@ -585,7 +618,7 @@ const ReportGhostScreen = () => {
 
               <View style={{ flex: 1, paddingLeft: 12 }}>
                 <Text style={styles.headerEyebrow}>FACULTY</Text>
-                <Text style={styles.headerTitle}>Report Ghost Class</Text>
+                <Text style={styles.headerTitle}>Report Class Cancellation</Text>
               </View>
 
               <View style={{ width: 34 }} />

@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  Alert,
   ActivityIndicator,
   RefreshControl,
   StatusBar,
@@ -14,6 +15,8 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import * as Print from 'expo-print';
+import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '../../services/supabase';
 import {
   computeRoomStatus,
@@ -172,6 +175,8 @@ const RoomStatusScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const [selectedRoom, setSelectedRoom] = useState(null);
+  const [printingQr, setPrintingQr] = useState(false);
+  const qrSvgRef = useRef(null);
 
   const todayRef = useRef(getTodayCode());
 
@@ -181,8 +186,7 @@ const RoomStatusScreen = () => {
     try {
       const { data: rooms, error: roomErr } = await supabase
         .from('rooms')
-        .select('id, room_code, floor_level, building_id, room_type')
-        .not('qr_code', 'is', null)
+        .select('id, room_code, floor_level, building_id, room_type, qr_code')
         .eq('is_teaching_room', true)
         .order('room_code');
 
@@ -305,6 +309,60 @@ const RoomStatusScreen = () => {
     : [];
 
   const closeModal = () => setSelectedRoom(null);
+
+  const printRoomQr = async () => {
+    if (!selectedRoom?.qr_code || !qrSvgRef.current?.toDataURL) {
+      Alert.alert('QR code unavailable', 'Please close and reopen the room details, then try again.');
+      return;
+    }
+
+    setPrintingQr(true);
+    try {
+      const qrBase64 = await new Promise((resolve, reject) => {
+        qrSvgRef.current.toDataURL((data) => {
+          if (data) resolve(data);
+          else reject(new Error('Could not render this room QR code.'));
+        });
+      });
+      const qrImage = qrBase64.startsWith('data:')
+        ? qrBase64
+        : `data:image/png;base64,${qrBase64}`;
+      const roomName = selectedRoom.room_code.replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char]);
+
+      await Print.printAsync({
+        html: `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding: 40px 20px; }
+                h1 { font-size: 24px; margin: 0 0 8px; }
+                p { color: #555; font-size: 14px; }
+                img { width: 280px; height: 280px; image-rendering: pixelated; }
+              </style>
+            </head>
+            <body>
+              <h1>Room ${roomName}</h1>
+              <p>Scan with the UniNav professor app to verify this classroom.</p>
+              <img src="${qrImage}" alt="QR code for room ${roomName}">
+            </body>
+          </html>
+        `,
+      });
+    } catch (error) {
+      console.error('Room QR print error:', error);
+      Alert.alert('Unable to print QR code', 'Please try again or use your device’s print settings.');
+    } finally {
+      setPrintingQr(false);
+    }
+  };
 
   const summaryItems = [
     { label: 'OCCUPIED', value: counts.occupied || 0, tone: T.red },
@@ -524,9 +582,6 @@ const RoomStatusScreen = () => {
                     </Text>
                   )}
 
-                  <Text style={styles.modalSectionLabel}>
-                    TODAY'S SCHEDULE
-                  </Text>
                 </View>
 
                 {/* ---- SCROLLABLE SCHEDULE LIST ---- */}
@@ -538,6 +593,48 @@ const RoomStatusScreen = () => {
                   keyboardShouldPersistTaps="handled"
                   bounces
                 >
+                  <View style={styles.qrPanel}>
+                    <Text style={styles.qrPanelTitle}>ROOM QR CODE</Text>
+                    {selectedRoom.qr_code ? (
+                      <>
+                        <QRCode
+                          value={selectedRoom.qr_code}
+                          size={240}
+                          quietZone={16}
+                          color={T.ink}
+                          backgroundColor={T.surface}
+                          getRef={(svg) => {
+                            qrSvgRef.current = svg;
+                          }}
+                        />
+                        <Text style={styles.qrPanelHint}>
+                          Post this code at the room entrance for class check-in.
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.qrPrintButton}
+                          onPress={printRoomQr}
+                          disabled={printingQr}
+                          activeOpacity={0.8}
+                        >
+                          {printingQr ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.qrPrintButtonText}>
+                              Print / Save PDF
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <Text style={styles.modalEmptyText}>
+                        A QR code has not been generated for this room yet.
+                      </Text>
+                    )}
+                  </View>
+
+                  <Text style={styles.modalSectionLabel}>
+                    TODAY'S SCHEDULE
+                  </Text>
                   {selectedRoomSchedules.length === 0 ? (
                     <View style={styles.modalEmptyBox}>
                       <Text style={styles.modalEmptyText}>
@@ -1076,6 +1173,45 @@ const styles = StyleSheet.create({
   },
   scheduleScrollContent: {
     paddingBottom: 40,
+  },
+  qrPanel: {
+    alignItems: 'center',
+    backgroundColor: T.surface,
+    borderWidth: 1,
+    borderColor: T.hair,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 18,
+  },
+  qrPanelTitle: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: T.inkFaint,
+    marginBottom: 12,
+  },
+  qrPanelHint: {
+    fontSize: 11,
+    color: T.inkMuted,
+    textAlign: 'center',
+    fontWeight: '500',
+    marginTop: 12,
+  },
+  qrPrintButton: {
+    minWidth: 170,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.crimson,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    marginTop: 14,
+  },
+  qrPrintButtonText: {
+    color: T.surface,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 
   modalEmptyBox: {

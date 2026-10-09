@@ -70,13 +70,14 @@ const FRAME_SIZE = 260;
 // ============================================================
 
 class ScanError extends Error {
-  constructor(code, title, message, hint = '', severity = 'warning') {
+  constructor(code, title, message, hint = '', severity = 'warning', details = {}) {
     super(message);
     this.name = 'ScanError';
     this.code = code;
     this.title = title;
     this.hint = hint;
     this.severity = severity;
+    this.details = details;
   }
 }
 
@@ -88,6 +89,7 @@ const toScanFailure = (err) => {
       message: err.message,
       hint: err.hint,
       severity: err.severity,
+      ...err.details,
     };
   }
 
@@ -192,8 +194,6 @@ const QRScannerScreen = () => {
     setScanning(false);
     setProcessing(true);
 
-    let debugInfo = '';
-
     try {
       const scannedValue = (data ?? '').toString().trim();
 
@@ -206,14 +206,11 @@ const QRScannerScreen = () => {
 
       if (roomError) throw roomError;
       if (!room) {
-        debugInfo = `scanned: ${
-          scannedValue.length > 40 ? `${scannedValue.slice(0, 40)}…` : scannedValue
-        }`;
         throw new ScanError(
           'UNKNOWN_QR',
-          'Unrecognized QR code',
-          "This isn't a UniNav classroom QR code.",
-          'Scan the QR code posted at the classroom door.',
+          'QR code not recognized',
+          'This code does not match a classroom in UniNav.',
+          'Check that you are scanning the UniNav QR posted at the entrance, then try again.',
           'warning'
         );
       }
@@ -241,9 +238,9 @@ const QRScannerScreen = () => {
       if (!faculty || !fullName) {
         throw new ScanError(
           'NO_PROFILE',
-          'Profile not found',
-          "We couldn't find your faculty profile.",
-          'Log out and back in. If it persists, contact your administrator.',
+          'Faculty account not found',
+          'Your account is not linked to a faculty profile, so we could not verify this check-in.',
+          'Sign in again. If the issue continues, ask your administrator to check your faculty account.',
           'error'
         );
       }
@@ -254,8 +251,8 @@ const QRScannerScreen = () => {
       if (!todayCode) {
         throw new ScanError(
           'NO_CLASSES_SUNDAY',
-          'No classes today',
-          'There are no classes scheduled on Sundays.',
+          'No classes scheduled today',
+          'There are no scheduled classes to verify today.',
           '',
           'warning'
         );
@@ -282,21 +279,12 @@ const QRScannerScreen = () => {
         (s) => normalizeText(s.room_name) === scannedRoom
       );
 
-      debugInfo =
-        `day: ${todayCode} | now: ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}\n` +
-        `schedules today: ${(schedules || []).length} | mine: ${mine.length} | in this room: ${inRoom.length}\n` +
-        `my name: ${myName}\n` +
-        `room: ${scannedRoom}` +
-        (mine.length
-          ? `\nmy rooms: ${mine.map((s) => normalizeText(s.room_name)).join(', ')}`
-          : '');
-
       if (mine.length === 0) {
         throw new ScanError(
           'NO_CLASSES_TODAY',
-          'No classes found',
-          'We found no classes under your name for today.',
-          'If you do have classes today, your registered name may not match the schedule. Ask your Program Chair to check it.',
+          'No classes found for your account',
+          'We could not find a class assigned to you for today.',
+          'If you are scheduled to teach today, ask your Program Chair to confirm that your name and schedule are correct.',
           'warning'
         );
       }
@@ -305,14 +293,26 @@ const QRScannerScreen = () => {
         const next = pickNextClass(mine, nowMin);
         throw new ScanError(
           'WRONG_ROOM',
-          'Wrong room',
-          `You scanned ${room.room_code}, but you have no class in this room today.`,
+          'This is not your scheduled room',
+          `You scanned the QR for ${room.room_code}, but none of your classes today are scheduled in this room.`,
           next
             ? `Your ${next.subject_code} (${next.section}) class is in ${
                 next.room_name || 'an unassigned room'
               } at ${formatTime(next.start_time)}.`
             : 'All your classes for today have already ended.',
-          'warning'
+          'warning',
+          {
+            scannedRoom: room.room_code,
+            nextClass: next
+              ? {
+                  subject: next.subject_code,
+                  section: next.section,
+                  courseTitle: next.course_title,
+                  room: next.room_name || 'Room not assigned',
+                  time: `${formatTime(next.start_time)} – ${formatTime(next.end_time)}`,
+                }
+              : null,
+          }
         );
       }
 
@@ -334,11 +334,11 @@ const QRScannerScreen = () => {
         if (upcoming) {
           throw new ScanError(
             'TOO_EARLY',
-            'Too early to verify',
-            `Your ${upcoming.subject_code} class in ${room.room_code} starts at ${formatTime(
+            'Check-in is not open yet',
+            `${upcoming.subject_code} in ${room.room_code} is scheduled to start at ${formatTime(
               upcoming.start_time
             )}.`,
-            `You can verify up to ${GRACE_MINUTES} minutes before the class starts.`,
+            `Room check-in opens ${GRACE_MINUTES} minutes before class begins. Please try again closer to the start time.`,
             'warning'
           );
         }
@@ -348,11 +348,11 @@ const QRScannerScreen = () => {
         )[0];
         throw new ScanError(
           'CLASS_ENDED',
-          'Class already ended',
-          `Your ${last.subject_code} class in ${room.room_code} ended at ${formatTime(
+          'Check-in window has ended',
+          `${last.subject_code} in ${room.room_code} ended at ${formatTime(
             last.end_time
           )}.`,
-          'Room verification is only available during class time.',
+          'Room check-in is only available during the scheduled class window.',
           'warning'
         );
       }
@@ -423,7 +423,6 @@ const QRScannerScreen = () => {
       setResult({
         success: false,
         ...failure,
-        debug: __DEV__ ? debugInfo || (err?.message ?? '') : '',
       });
     } finally {
       setProcessing(false);
@@ -532,13 +531,13 @@ const QRScannerScreen = () => {
             </Text>
           </View>
 
-          <Text style={styles.resultTitle}>
-            {result.success
-              ? result.alreadyVerified
-                ? 'Already verified'
-                : 'Room verified'
-              : result.title || 'Verification failed'}
-          </Text>
+          {result.success && (
+            <Text style={styles.resultTitle}>
+              {result.alreadyVerified
+                ? 'Check-in already recorded'
+                : "You're checked in!"}
+            </Text>
+          )}
 
           {result.success ? (
             <>
@@ -582,27 +581,75 @@ const QRScannerScreen = () => {
 
               <Text style={styles.resultNote}>
                 {result.alreadyVerified
-                  ? 'This class was already verified. No new session was created.'
-                  : 'Room status has been updated. Students can now see this class is officially in session.'}
+                  ? `Your check-in for ${result.subject} in ${result.room} is already recorded. No duplicate session was created.`
+                  : `Your attendance for ${result.subject} in ${result.room} is verified. The class is now marked in progress.`}
               </Text>
             </>
           ) : (
             <>
-              <Text style={[styles.resultFailureMessage, { color: tone.accent }]}>
-                {result.message}
-              </Text>
+              <View
+                style={[
+                  styles.resultFailureCard,
+                  {
+                    backgroundColor: tone.soft,
+                    borderColor: tone.border,
+                    borderLeftColor: tone.accent,
+                  },
+                ]}
+              >
+                <Text style={[styles.resultFailureEyebrow, { color: tone.accent }]}>
+                  {result.code === 'WRONG_ROOM'
+                    ? 'ROOM MISMATCH'
+                    : isWarning
+                    ? 'CHECK-IN NOT COMPLETED'
+                    : 'UNABLE TO VERIFY'}
+                </Text>
+                <Text style={styles.resultFailureTitle}>
+                  {result.title || 'Verification failed'}
+                </Text>
+                <Text style={styles.resultFailureMessage}>
+                  {result.message}
+                </Text>
 
-              {!!result.hint && (
+                {result.code === 'WRONG_ROOM' && (
+                  <>
+                    {!!result.scannedRoom && (
+                      <View style={styles.scannedRoomRow}>
+                        <Text style={styles.scannedRoomLabel}>SCANNED ROOM</Text>
+                        <Text style={styles.scannedRoomValue}>
+                          {result.scannedRoom}
+                        </Text>
+                      </View>
+                    )}
+                    {result.nextClass && (
+                      <View style={styles.expectedClassCard}>
+                        <Text style={styles.expectedClassLabel}>
+                          YOUR NEXT SCHEDULED CLASS
+                        </Text>
+                        <Text style={styles.expectedClassSubject}>
+                          {result.nextClass.subject}
+                          {result.nextClass.section
+                            ? ` · ${result.nextClass.section}`
+                            : ''}
+                        </Text>
+                        {!!result.nextClass.courseTitle && (
+                          <Text style={styles.expectedClassCourse}>
+                            {result.nextClass.courseTitle}
+                          </Text>
+                        )}
+                        <Text style={styles.expectedClassMeta}>
+                          {result.nextClass.room}  ·  {result.nextClass.time}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
+
+              {!!result.hint && result.code !== 'WRONG_ROOM' && (
                 <View style={styles.resultHintBox}>
-                  <Text style={styles.resultHintLabel}>WHAT TO DO</Text>
+                  <Text style={styles.resultHintLabel}>NEXT STEP</Text>
                   <Text style={styles.resultHintText}>{result.hint}</Text>
-                </View>
-              )}
-
-              {!!result.debug && (
-                <View style={styles.debugBox}>
-                  <Text style={styles.debugLabel}>DEV INFO</Text>
-                  <Text style={styles.debugText}>{result.debug}</Text>
                 </View>
               )}
             </>
@@ -1113,12 +1160,84 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
 
+  resultFailureCard: {
+    alignSelf: 'stretch',
+    padding: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderLeftWidth: 4,
+    marginTop: 2,
+  },
+  resultFailureEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    marginBottom: 7,
+  },
+  resultFailureTitle: {
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '900',
+    color: T.ink,
+    letterSpacing: -0.3,
+  },
   resultFailureMessage: {
+    fontSize: 13,
+    color: T.inkSoft,
+    fontWeight: '500',
+    lineHeight: 20,
+    marginTop: 7,
+  },
+  scannedRoomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 15,
+  },
+  scannedRoomLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+    color: T.inkMuted,
+  },
+  scannedRoomValue: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: T.ink,
+  },
+  expectedClassCard: {
+    backgroundColor: T.surface,
+    borderRadius: 12,
+    padding: 13,
+    marginTop: 10,
+  },
+  expectedClassLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: T.inkFaint,
+    marginBottom: 6,
+  },
+  expectedClassSubject: {
     fontSize: 15,
-    fontWeight: '700',
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 8,
+    fontWeight: '900',
+    color: T.ink,
+  },
+  expectedClassCourse: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: T.inkMuted,
+    marginTop: 2,
+  },
+  expectedClassMeta: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: T.crimson,
+    marginTop: 7,
   },
   resultHintBox: {
     alignSelf: 'stretch',
@@ -1143,29 +1262,6 @@ const styles = StyleSheet.create({
     color: T.inkSoft,
     lineHeight: 18,
     fontWeight: '500',
-  },
-
-  debugBox: {
-    alignSelf: 'stretch',
-    marginTop: 18,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: T.slateSoft,
-    borderWidth: 1,
-    borderColor: T.hair,
-  },
-  debugLabel: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1.4,
-    color: T.inkFaint,
-    marginBottom: 6,
-  },
-  debugText: {
-    fontSize: 11,
-    color: T.inkSoft,
-    lineHeight: 16,
-    fontVariant: ['tabular-nums'],
   },
 
   resultFooter: {

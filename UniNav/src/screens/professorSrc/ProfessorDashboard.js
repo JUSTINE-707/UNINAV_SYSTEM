@@ -694,16 +694,28 @@ const ProfessorDashboard = ({ navigation }) => {
 
   const handleCompleteClass = async (schedule) => {
     const sessionId = schedule?.liveSession?.id;
+    const className = [schedule?.subject_code, schedule?.section]
+      .filter(Boolean)
+      .join(' · ');
+    const classDescription = schedule?.course_title
+      ? `${className || 'This class'} — ${schedule.course_title}`
+      : className || 'This class';
     const endMin = timeToMinutes(schedule?.end_time);
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
     if (!sessionId || !user?.id) {
-      Alert.alert('No active session', 'Start the class before completing it.');
+      Alert.alert(
+        'No active check-in',
+        'This class has no active room session to complete. Scan the room QR code first.'
+      );
       return;
     }
     if (!Number.isFinite(endMin) || nowMin < endMin) {
-      Alert.alert('Not time yet', 'You can complete this class at its scheduled end time.');
+      Alert.alert(
+        'Class is still in session',
+        `${classDescription} can be marked complete at its scheduled end time (${formatTime(schedule.end_time)}).`
+      );
       return;
     }
 
@@ -728,16 +740,25 @@ const ProfessorDashboard = ({ navigation }) => {
 
       if (error) throw error;
       if (!data) {
-        Alert.alert('Already completed', 'This class session has already been closed.');
+        Alert.alert(
+          'Session already closed',
+          `${classDescription} has already been completed, so no further update was needed.`
+        );
         loadDashboard();
         return;
       }
 
-      Alert.alert('Success', 'Class completed at its scheduled end time.');
+      Alert.alert(
+        'Class marked complete',
+        `${classDescription} was recorded as completed at its scheduled end time (${formatTime(schedule.end_time)}).`
+      );
       loadDashboard();
     } catch (err) {
       console.error('Complete class error:', err);
-      Alert.alert('Error', 'Failed to complete the class. Please try again.');
+      Alert.alert(
+        'Could not complete class',
+        `We couldn't update ${classDescription}. Check your connection and try again.`
+      );
     }
   };
 
@@ -837,16 +858,6 @@ const ProfessorDashboard = ({ navigation }) => {
   })();
 
   const moreCount = Math.max(0, todayClasses.length - previewClasses.length);
-
-  const heroProgress = (() => {
-    if (!nextClass) return 0;
-    const start = timeToMinutes(nextClass.start_time);
-    const end = timeToMinutes(nextClass.end_time);
-    if (start === null || end === null) return 0;
-    if (nowMin <= start) return 0;
-    if (nowMin >= end) return 1;
-    return (nowMin - start) / (end - start);
-  })();
 
   const today = new Date();
   const dayNumber = today.getDate();
@@ -979,59 +990,66 @@ const ProfessorDashboard = ({ navigation }) => {
         {nextClass && nextStatus ? (
           <View style={styles.hero}>
             <View style={styles.heroTop}>
-              <Text style={styles.heroEyebrow}>UP NEXT</Text>
-              <View
+              <Text
                 style={[
-                  styles.heroStatusChip,
-                  {
-                    backgroundColor:
-                      nextStatus === 'ghost'
-                        ? T.slateSoft
-                        : nextClass.isOnline
-                        ? T.blueSoft
-                        : stateSoftBg(nextStatus),
-                  },
+                  styles.heroEyebrow,
+                  nextStatus === 'ongoing' && { color: T.green },
                 ]}
               >
+                {nextStatus === 'ongoing' ? 'IN PROGRESS' : 'UP NEXT'}
+              </Text>
+              {nextStatus !== 'ongoing' && (
                 <View
                   style={[
-                    styles.heroStatusDot,
+                    styles.heroStatusChip,
                     {
                       backgroundColor:
                         nextStatus === 'ghost'
-                          ? T.slate
+                          ? T.slateSoft
                           : nextClass.isOnline
-                          ? T.blue
-                          : stateAccent(nextStatus),
-                    },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.heroStatusText,
-                    {
-                      color:
-                        nextStatus === 'ghost'
-                          ? T.slate
-                          : nextClass.isOnline
-                          ? T.blue
-                          : stateAccent(nextStatus),
+                          ? T.blueSoft
+                          : stateSoftBg(nextStatus),
                     },
                   ]}
                 >
-                  {nextStatus === 'ghost'
-                    ? 'CANCELLED'
-                    : nextClass.isOnline
-                    ? 'ONLINE'
-                    : nextStatus === 'ongoing'
-                    ? 'LIVE'
-                    : nextStatus === 'ended_early'
-                    ? 'ENDED'
-                    : nextStatus === 'starts_now'
-                    ? 'NOW'
-                    : 'SOON'}
-                </Text>
-              </View>
+                  <View
+                    style={[
+                      styles.heroStatusDot,
+                      {
+                        backgroundColor:
+                          nextStatus === 'ghost'
+                            ? T.slate
+                            : nextClass.isOnline
+                            ? T.blue
+                            : stateAccent(nextStatus),
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.heroStatusText,
+                      {
+                        color:
+                          nextStatus === 'ghost'
+                            ? T.slate
+                            : nextClass.isOnline
+                            ? T.blue
+                            : stateAccent(nextStatus),
+                      },
+                    ]}
+                  >
+                    {nextStatus === 'ghost'
+                      ? 'CANCELLED'
+                      : nextClass.isOnline
+                      ? 'ONLINE'
+                      : nextStatus === 'ended_early'
+                      ? 'ENDED'
+                      : nextStatus === 'starts_now'
+                      ? 'NOW'
+                      : 'SOON'}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <Text style={styles.heroSubject} numberOfLines={1}>
@@ -1040,29 +1058,6 @@ const ProfessorDashboard = ({ navigation }) => {
             <Text style={styles.heroTitle} numberOfLines={2}>
               {nextClass.course_title}
             </Text>
-
-            {(nextStatus === 'ongoing' || nextStatus === 'starts_now') &&
-              !nextClass.isOnline &&
-              nextStatus !== 'ghost' && (
-                <View style={styles.heroProgressWrap}>
-                  <View style={styles.heroProgressTrack}>
-                    <View
-                      style={[
-                        styles.heroProgressFill,
-                        {
-                          width: `${Math.max(2, Math.min(100, heroProgress * 100))}%`,
-                          backgroundColor: stateAccent(nextStatus),
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.heroProgressLabel}>
-                    {nextStatus === 'ongoing'
-                      ? `${Math.round(heroProgress * 100)}% through`
-                      : 'Starting soon'}
-                  </Text>
-                </View>
-              )}
 
             <View style={styles.heroMetaGrid}>
               <View style={styles.heroMetaItem}>
@@ -1452,6 +1447,12 @@ const ProfessorDashboard = ({ navigation }) => {
               onPress={openFullSchedule}
             />
             <ToolCard
+              icon="users"
+              label="Enrollments"
+              sub="Import a class list"
+              onPress={() => navigation.navigate('EnrollmentImport')}
+            />
+            <ToolCard
               icon="map"
               label="Campus Map"
               sub="Find your way"
@@ -1468,7 +1469,6 @@ const ProfessorDashboard = ({ navigation }) => {
               label="Report Class"
               sub="Report a cancelled class"
               onPress={handleQuickReportClass}
-              full
             />
           </View>
         </View>
@@ -1898,11 +1898,10 @@ const Banner = ({ tone, title, body }) => {
   );
 };
 
-const ToolCard = ({ icon, label, sub, onPress, accent, full }) => (
+const ToolCard = ({ icon, label, sub, onPress, accent }) => (
   <TouchableOpacity
     style={[
       styles.toolCard,
-      full && styles.toolCardFull,
       accent && styles.toolCardAccent,
     ]}
     onPress={onPress}
@@ -2276,26 +2275,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 21,
   },
-  heroProgressWrap: {
-    marginTop: 18,
-  },
-  heroProgressTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: T.hair2,
-    overflow: 'hidden',
-  },
-  heroProgressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  heroProgressLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.inkMuted,
-    marginTop: 8,
-    letterSpacing: 0.4,
-  },
   heroMetaGrid: {
     flexDirection: 'row',
     marginTop: 18,
@@ -2630,9 +2609,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: T.hair,
-  },
-  toolCardFull: {
-    width: '100%',
   },
   toolCardAccent: {
     backgroundColor: T.crimson,
