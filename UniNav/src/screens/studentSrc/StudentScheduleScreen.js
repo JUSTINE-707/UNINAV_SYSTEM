@@ -131,7 +131,10 @@ const getWeekRange = () => {
   monday.setHours(0, 0, 0, 0)
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6)
-  return { start: toLocalDateString(monday), end: toLocalDateString(sunday) }
+  const tomorrow = new Date(now)
+  tomorrow.setDate(now.getDate() + 1)
+  const rangeEnd = tomorrow > sunday ? tomorrow : sunday
+  return { start: toLocalDateString(monday), end: toLocalDateString(rangeEnd) }
 }
 
 const formatTime = (time) => {

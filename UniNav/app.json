@@ -9,7 +9,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "UniNav uses your camera to scan classroom QR codes."
+        "NSCameraUsageDescription": "UniNav uses your camera to scan classroom QR codes.",
+        "NSLocationWhenInUseUsageDescription": "UniNav uses your location to show where you are on the campus map."
       }
     },
     "android": {
@@ -19,7 +20,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["CAMERA"]
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,6 +35,12 @@
         "expo-camera",
         {
           "cameraPermission": "Allow UniNav to access your camera to scan classroom QR codes."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow UniNav to use your location to show where you are on the campus map."
         }
       ]
     ]

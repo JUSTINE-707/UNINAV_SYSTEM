@@ -140,7 +140,7 @@ const StudentSettingsScreen = ({ navigation }) => {
                 </Text>
               </View>
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>COURSE</Text>
+                <Text style={styles.detailLabel}>PROGRAM</Text>
                 <Text style={styles.detailValue} numberOfLines={2}>
                   {profile?.course || 'Not assigned'}
                 </Text>

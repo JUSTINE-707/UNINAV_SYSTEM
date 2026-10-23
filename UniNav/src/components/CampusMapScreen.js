@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   View,
   Text,
@@ -25,6 +25,8 @@ import * as Haptics from 'expo-haptics'
 import { useRoute, useNavigation } from '@react-navigation/native'
 import { supabase } from '../services/supabase'
 import { findKShortestPaths } from '../utils/dijkstra'
+import { useUserLocation } from '../hooks/useUserLocation'
+import { buildGeoTransform, snapToEdges } from '../utils/geo'
 
 const RENDER_MULTIPLIER = 1
 const DEFAULT_ZOOM = 1
@@ -37,6 +39,21 @@ const ZOOM_STEP = 1.35
 
 const MAX_ROUTES = 1
 const FALLBACK_CHROME_HEIGHT = 260
+const MAX_PIN_PATH_DISTANCE = 150
+
+// ============================================================
+// GPS CALIBRATION
+// ============================================================
+const CONTROL_POINTS = [
+  { label: 'G1-WP',     lat: 14.06765417, lng: 120.6269678, x: 1058, y: 198  },
+  { label: 'IBAAN-WP1', lat: 14.06772005, lng: 120.6259353, x: 438,  y: 164  },
+  { label: 'IMT-WP',    lat: 14.06640152, lng: 120.6256389, x: 268,  y: 987  },
+  { label: 'HST-WP1',   lat: 14.06707255, lng: 120.6270472, x: 1112, y: 562  },
+  { label: 'CAF-WP',    lat: 14.06678873, lng: 120.6267179, x: 915,  y: 737  },
+  { label: 'MF-WP',     lat: 14.06668982, lng: 120.626021,  x: 496,  y: 808  },
+  { label: 'WP-50',     lat: 14.06613698, lng: 120.626276,  x: 654,  y: 1147 },
+]
+const geo = buildGeoTransform(CONTROL_POINTS)
 
 // ============================================================
 // MAP PIN ICON
@@ -512,7 +529,7 @@ const generateSteps = (path, buildings, destinationName, rooms = []) => {
 // ============================================================
 
 const CampusMapScreen = ({
-  defaultStartLabel = 'G1-WP1',
+  defaultStartLabel = 'G1-WP',
   showDebugPanel = false,
   headerEyebrow = 'CAMPUS MAP',
   showScanQRAfterRoute = false,
@@ -562,6 +579,11 @@ const CampusMapScreen = ({
   const [currentStepIdx, setCurrentStepIdx] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
 
+  const [followMe] = useState(true)
+  const [indoorAnchor, setIndoorAnchor] = useState(null) // used later for QR / "I'm here"
+  const [destNodeId, setDestNodeId] = useState(null)
+  const userStartRef = useRef(null)
+
   const scale = useSharedValue(DEFAULT_ZOOM)
   const savedScale = useSharedValue(DEFAULT_ZOOM)
   const pinchStartScale = useSharedValue(DEFAULT_ZOOM)
@@ -579,6 +601,54 @@ const CampusMapScreen = ({
   const areaH = useSharedValue(screenH - FALLBACK_CHROME_HEIGHT)
 
   const path = paths[0] || []
+
+  // ============================================================
+  // LIVE USER LOCATION
+  // ============================================================
+  const { coords, heading } = useUserLocation(followMe)
+
+  const outdoorGraph = useMemo(() => {
+    const ns = nodes.filter((n) => !n.building_id && n.floor_level === 0)
+    const ids = new Set(ns.map((n) => n.id))
+    const es = edges.filter((e) => ids.has(e.from_node_id) && ids.has(e.to_node_id))
+    return { ns, es }
+  }, [nodes, edges])
+
+  const userPos = useMemo(() => {
+    if (indoorAnchor) {
+      return {
+        x: Number(indoorAnchor.coord_x),
+        y: Number(indoorAnchor.coord_y),
+        floor: indoorAnchor.floor_level,
+        buildingId: indoorAnchor.building_id || null,
+        nearestNode: indoorAnchor,
+        accuracyPx: 0,
+      }
+    }
+    if (!followMe) return null
+
+    const c = coords
+    if (!c) return null
+
+    const raw = geo.toImage(c.latitude, c.longitude)
+    const { width, height } = imageDimensions
+    if (raw.x < -50 || raw.y < -50 || raw.x > width + 50 || raw.y > height + 50) {
+      return null // user is not on campus
+    }
+
+    const snapped = snapToEdges(raw, outdoorGraph.ns, outdoorGraph.es)
+    return {
+      x: snapped?.x ?? raw.x,
+      y: snapped?.y ?? raw.y,
+      floor: 0,
+      buildingId: null,
+      nearestNode: snapped?.nearestNode || null,
+      accuracyPx: (c.accuracy || 10) * geo.pxPerMeter,
+    }
+  }, [coords, indoorAnchor, followMe, outdoorGraph, imageDimensions])
+
+  const userStartNodeId = userPos?.nearestNode?.id || null
+  userStartRef.current = userStartNodeId
 
   // ============================================================
   // DESTINATION DISPLAY NAME
@@ -796,6 +866,7 @@ const CampusMapScreen = ({
         }
 
         if (!targetRoomName) {
+          setDestNodeId(null)
           setLoading(false)
           setRefreshing(false)
           return
@@ -804,7 +875,11 @@ const CampusMapScreen = ({
         const safeNodes = nodeData || []
         const safeEdges = edgeData || []
 
-        const startNode = safeNodes.find((n) => n.label === defaultStartLabel)
+        const userStart = userStartRef.current
+          ? safeNodes.find((n) => n.id === userStartRef.current)
+          : null
+        const startNode =
+          userStart || safeNodes.find((n) => n.label === defaultStartLabel)
         if (!startNode) {
           setError(`Start node "${defaultStartLabel}" not found.`)
           setLoading(false)
@@ -839,7 +914,7 @@ const CampusMapScreen = ({
             { match: /GYM/, label: 'JGYM-WP' },
             { match: /CAFE|CAFETERIA/, label: 'CAF-WP' },
             { match: /HOSTEL/, label: 'HST-WP1' },
-            { match: /IBAA/, label: 'IBAA-WP1' },
+            { match: /IBAA/, label: 'IBAAN-WP1' },
             { match: /MINI FOREST|MF/, label: 'MF-WP' },
             { match: /HEB|LAB|CISCO|MAC/, label: 'HEB-WP1' },
             { match: /LIPA/, label: 'LIPA-WP1' },
@@ -858,6 +933,8 @@ const CampusMapScreen = ({
           setRefreshing(false)
           return
         }
+
+        setDestNodeId(endNode.id)
 
         setPinnedLocation((prev) => {
           // If the user just dropped a pin, keep their pin at the tap
@@ -892,6 +969,19 @@ const CampusMapScreen = ({
 
     load()
   }, [targetRoomName, currentBuildingId, currentFloor, defaultStartLabel, refreshKey])
+
+  // ============================================================
+  // REROUTE FROM LIVE POSITION
+  // ============================================================
+  // Fires when the user's nearest node changes, not on every GPS tick.
+
+  useEffect(() => {
+    if (!followMe || !targetRoomName) return
+    if (!userStartNodeId || !destNodeId || !nodes.length) return
+    if (userStartNodeId === destNodeId) return
+    const err = computeRoute(userStartNodeId, destNodeId, nodes, edges)
+    setError(err)
+  }, [userStartNodeId, destNodeId])
 
   // ============================================================
   // STEP SHEET SIDE EFFECTS
@@ -1047,7 +1137,42 @@ const CampusMapScreen = ({
   }
 
   // ============================================================
-  // LONG-PRESS PIN — snaps to nearest node
+  // CENTER ON USER
+  // ============================================================
+
+  const centerOnUser = () => {
+    if (!userPos) return
+    hapticMedium()
+
+    if (
+      userPos.floor !== currentFloor ||
+      (userPos.buildingId || null) !== (currentBuildingId || null)
+    ) {
+      setCurrentBuildingId(userPos.buildingId || null)
+      setCurrentFloor(userPos.floor)
+    }
+
+    const targetScale = 2
+    const fit = fs.value
+    const W = imgW.value * fit * targetScale
+    const H = imgH.value * fit * targetScale
+    const maxX = Math.max((W - areaW.value) / 2, 0)
+    const maxY = Math.max((H - areaH.value) / 2, 0)
+
+    const offX = -(userPos.x - imgW.value / 2) * fit * targetScale
+    const offY = -(userPos.y - imgH.value / 2) * fit * targetScale
+
+    rotation.value = withTiming(0, { duration: 300 })
+    savedRotation.value = 0
+    scale.value = withTiming(targetScale, { duration: 300 })
+    savedScale.value = targetScale
+    translateX.value = withTiming(Math.min(Math.max(offX, -maxX), maxX), { duration: 300 })
+    translateY.value = withTiming(Math.min(Math.max(offY, -maxY), maxY), { duration: 300 })
+    setIsRotated(false)
+  }
+
+  // ============================================================
+  // LONG-PRESS PIN — associates the pin with the nearest routable edge
   // ============================================================
 
   const handleLongPressPin = (x, y) => {
@@ -1062,17 +1187,18 @@ const CampusMapScreen = ({
       return n.floor_level === currentFloor && nB === tB
     })
 
-    let nearest = null
-    let nearestDist = Infinity
-    for (const n of candidates) {
-      const dx = Number(n.coord_x) - imageX
-      const dy = Number(n.coord_y) - imageY
-      const d = Math.sqrt(dx * dx + dy * dy)
-      if (d < nearestDist) {
-        nearestDist = d
-        nearest = n
-      }
-    }
+    const candidateIds = new Set(candidates.map((n) => n.id))
+    const candidateEdges = edges.filter(
+      (edge) => candidateIds.has(edge.from_node_id) && candidateIds.has(edge.to_node_id)
+    )
+    const snapped = snapToEdges(
+      { x: imageX, y: imageY },
+      candidates,
+      candidateEdges,
+      MAX_PIN_PATH_DISTANCE
+    )
+    const nearest = snapped?.nearestNode || null
+    const reachableNode = snapped ? nearest : null
 
     setPaths([])
     setError(null)
@@ -1087,9 +1213,9 @@ const CampusMapScreen = ({
       floor_level: currentFloor,
       building_id: currentBuildingId || null,
       isDroppedPin: true,
-      nearestNodeId: nearest?.id || null,
-      nearestNodeLabel: nearest?.label || null,
-      nearestDistance: nearestDist,
+      nearestNodeId: reachableNode?.id || null,
+      nearestNodeLabel: reachableNode?.label || null,
+      nearestDistance: snapped?.dist ?? Infinity,
     })
   }
 
@@ -1303,6 +1429,13 @@ const CampusMapScreen = ({
     if (!pinnedLocation) return
     hapticMedium()
 
+    if (pinnedLocation.isDroppedPin && !pinnedLocation.nearestNodeId) {
+      setPaths([])
+      setTargetRoomName(null)
+      setError('No route available: this pin is not close to a reachable navigation node.')
+      return
+    }
+
     // If the pin snapped to a node, use that as the destination
     if (pinnedLocation.nearestNodeLabel) {
       setTargetRoomName(pinnedLocation.nearestNodeLabel)
@@ -1405,11 +1538,25 @@ const CampusMapScreen = ({
   // POLYLINE POINTS + ARROWS
   // ============================================================
 
-  const currentRoutePoints = currentFloorPath
-    .map(
-      (n) =>
-        `${n.coord_x * RENDER_MULTIPLIER},${n.coord_y * RENDER_MULTIPLIER}`
-    )
+  const routeLinePoints = currentFloorPath.map((node) => ({
+    x: Number(node.coord_x),
+    y: Number(node.coord_y),
+    id: node.id,
+  }))
+  const firstRouteNode = currentFloorPath[0]
+
+  if (
+    firstRouteNode &&
+    userPos &&
+    firstRouteNode.id === userPos?.nearestNode?.id &&
+    userPos.floor === currentFloor &&
+    (userPos.buildingId || null) === (currentBuildingId || null)
+  ) {
+    routeLinePoints.unshift({ x: userPos.x, y: userPos.y })
+  }
+
+  const currentRoutePoints = routeLinePoints
+    .map((point) => `${point.x * RENDER_MULTIPLIER},${point.y * RENDER_MULTIPLIER}`)
     .join(' ')
 
   const ARROW_SPACING = 120
@@ -1862,6 +2009,23 @@ const CampusMapScreen = ({
                     />
                   </>
                 )}
+
+              {/* USER LOCATION */}
+              {userPos &&
+                userPos.floor === currentFloor &&
+                (userPos.buildingId || null) === (currentBuildingId || null) && (
+                  <G transform={`translate(${userPos.x}, ${userPos.y})`}>
+                    {userPos.accuracyPx > 0 && (
+                      <Circle r={userPos.accuracyPx} fill="#1E88E5" opacity={0.15} />
+                    )}
+                    {heading != null && !indoorAnchor && (
+                      <G rotation={heading}>
+                        <Polygon points="0,-24 8,-9 -8,-9" fill="#1E88E5" opacity={0.65} />
+                      </G>
+                    )}
+                    <Circle r={8} fill="#1E88E5" stroke="#FFFFFF" strokeWidth={3} />
+                  </G>
+                )}
             </Svg>
           </Animated.View>
         </GestureDetector>
@@ -1909,6 +2073,15 @@ const CampusMapScreen = ({
           <View style={styles.mapControlDivider} />
           <TouchableOpacity style={styles.mapControlBtn} onPress={resetView} activeOpacity={0.7}>
             <Text style={styles.mapControlIconSmall}>⤢</Text>
+          </TouchableOpacity>
+          <View style={styles.mapControlDivider} />
+          <TouchableOpacity
+            style={[styles.mapControlBtn, !userPos && { opacity: 0.35 }]}
+            onPress={centerOnUser}
+            activeOpacity={0.7}
+            disabled={!userPos}
+          >
+            <Text style={styles.mapControlIconSmall}>◎</Text>
           </TouchableOpacity>
         </View>
 
