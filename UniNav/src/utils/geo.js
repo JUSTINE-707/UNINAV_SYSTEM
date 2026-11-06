@@ -64,6 +64,7 @@ export const buildGeoTransform = (points) => {
 }
 
 // Project a point onto the nearest edge segment so the dot stays on paths.
+// (Stateless version — still used for long-press pins.)
 export const snapToEdges = (pt, nodes, edges, maxDist = 60) => {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   let best = null
@@ -85,3 +86,73 @@ export const snapToEdges = (pt, nodes, edges, maxDist = 60) => {
   }
   return best && best.dist <= maxDist ? best : null
 }
+
+// >>> GPS-FIX (start): new function, keep. Everything above is your original code.
+// ------------------------------------------------------------
+// STICKY SNAPPER (for the live GPS dot)
+//
+// Same projection as snapToEdges, but remembers the previous result
+// and only switches edge / nearest node when the new one is clearly
+// better. This is what stops the dot teleporting between parallel
+// paths and junctions when the GPS wobbles.
+//
+//   prev        : the object returned by the previous call (or null)
+//   switchMargin: px a different edge must beat the current one by
+//   nodeMargin  : how far past t=0.5 before the nearest node flips
+// ------------------------------------------------------------
+export const snapToEdgesSticky = (pt, nodes, edges, prev, opts = {}) => {
+  const { maxDist = 60, switchMargin = 25, nodeMargin = 0.2 } = opts
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+
+  let best = null
+  let current = null
+
+  for (const e of edges) {
+    const A = byId.get(e.from_node_id)
+    const B = byId.get(e.to_node_id)
+    if (!A || !B) continue
+    const ax = +A.coord_x, ay = +A.coord_y
+    const bx = +B.coord_x, by = +B.coord_y
+    const dx = bx - ax, dy = by - ay
+    const len2 = dx * dx + dy * dy || 1
+    let t = ((pt.x - ax) * dx + (pt.y - ay) * dy) / len2
+    t = Math.max(0, Math.min(1, t))
+    const px = ax + t * dx, py = ay + t * dy
+    const dist = Math.hypot(pt.x - px, pt.y - py)
+    const key = String(e.id ?? `${e.from_node_id}::${e.to_node_id}`)
+    const cand = { x: px, y: py, dist, t, A, B, edgeKey: key }
+
+    if (!best || dist < best.dist) best = cand
+    if (prev && prev.edgeKey === key) current = cand
+  }
+
+  if (!best) return null
+
+  // Stay on the current edge unless another one is clearly closer.
+  let chosen = best
+  if (current && current.dist <= maxDist && current.dist <= best.dist + switchMargin) {
+    chosen = current
+  }
+  if (chosen.dist > maxDist) return null
+
+  // Nearest node with hysteresis around the midpoint.
+  let nearestNode = chosen.t < 0.5 ? chosen.A : chosen.B
+  const prevNode = prev?.nearestNode
+  if (prevNode && chosen.edgeKey === prev.edgeKey) {
+    if (prevNode.id === chosen.A.id) {
+      nearestNode = chosen.t > 0.5 + nodeMargin ? chosen.B : chosen.A
+    } else if (prevNode.id === chosen.B.id) {
+      nearestNode = chosen.t < 0.5 - nodeMargin ? chosen.A : chosen.B
+    }
+  }
+
+  return {
+    x: chosen.x,
+    y: chosen.y,
+    dist: chosen.dist,
+    t: chosen.t,
+    edgeKey: chosen.edgeKey,
+    nearestNode,
+  }
+}
+// <<< GPS-FIX (end)

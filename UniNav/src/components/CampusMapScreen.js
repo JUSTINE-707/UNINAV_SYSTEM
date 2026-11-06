@@ -622,7 +622,6 @@ const CampusMapScreen = ({
         floor: indoorAnchor.floor_level,
         buildingId: indoorAnchor.building_id || null,
         nearestNode: indoorAnchor,
-        accuracyPx: 0,
       }
     }
     if (!followMe) return null
@@ -643,7 +642,6 @@ const CampusMapScreen = ({
       floor: 0,
       buildingId: null,
       nearestNode: snapped?.nearestNode || null,
-      accuracyPx: (c.accuracy || 10) * geo.pxPerMeter,
     }
   }, [coords, indoorAnchor, followMe, outdoorGraph, imageDimensions])
 
@@ -2015,9 +2013,6 @@ const CampusMapScreen = ({
                 userPos.floor === currentFloor &&
                 (userPos.buildingId || null) === (currentBuildingId || null) && (
                   <G transform={`translate(${userPos.x}, ${userPos.y})`}>
-                    {userPos.accuracyPx > 0 && (
-                      <Circle r={userPos.accuracyPx} fill="#1E88E5" opacity={0.15} />
-                    )}
                     {heading != null && !indoorAnchor && (
                       <G rotation={heading}>
                         <Polygon points="0,-24 8,-9 -8,-9" fill="#1E88E5" opacity={0.65} />
