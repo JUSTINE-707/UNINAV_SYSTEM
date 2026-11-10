@@ -1,6 +1,7 @@
 export const COLORS = {
-  // BatStateU Official Colors
-  primary: '#8B0000',
+  // ClassSync brand colors
+  primary: '#D0112B',
+  primaryDark: '#A20D23',
   secondary: '#FFD700',
   accent: '#2E8B22',
 
@@ -13,7 +14,7 @@ export const COLORS = {
   error: '#FF3B30',
 
   // Role Colors
-  student: '#8B0000',
+  student: '#D0112B',
   professor: '#2E8B22',
   chair: '#FFD700',
   admin: '#222222',

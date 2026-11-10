@@ -13,7 +13,7 @@ import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
 
 const T = {
-  crimson: '#8B0000',
+  crimson: '#D0112B',
   crimsonSoft: '#FCECEC',
   ink: '#171719',
   muted: '#71717A',

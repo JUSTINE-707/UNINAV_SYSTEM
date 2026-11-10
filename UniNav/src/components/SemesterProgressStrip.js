@@ -2,7 +2,7 @@ import { View, Text, StyleSheet } from 'react-native'
 import { useSemester } from '../context/SemesterContext'
 
 const SemesterProgressStrip = ({
-  accentColor = '#8B0000',
+  accentColor = '#D0112B',
   trackColor = '#ECECEC',
   variant = 'light',
 }) => {

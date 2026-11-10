@@ -25,8 +25,8 @@ import {
 // ============================================================
 
 const T = {
-  crimson: '#8B0000',
-  crimsonLight: '#A61B1B',
+  crimson: '#D0112B',
+  crimsonLight: '#A20D23',
   ink: '#0B0B0D',
   inkSoft: '#3F3F46',
   inkMuted: '#71717A',
@@ -209,8 +209,8 @@ const QRScannerScreen = () => {
         throw new ScanError(
           'UNKNOWN_QR',
           'QR code not recognized',
-          'This code does not match a classroom in UniNav.',
-          'Check that you are scanning the UniNav QR posted at the entrance, then try again.',
+          'This code does not match a classroom in ClassSync.',
+          'Check that you are scanning the ClassSync QR posted at the entrance, then try again.',
           'warning'
         );
       }
@@ -462,7 +462,7 @@ const QRScannerScreen = () => {
         <Text style={styles.permissionEyebrow}>CAMERA ACCESS</Text>
         <Text style={styles.permissionTitle}>Permission required</Text>
         <Text style={styles.permissionText}>
-          UniNav needs camera access to scan the classroom QR code posted
+          ClassSync needs camera access to scan the classroom QR code posted
           on the door.
         </Text>
         <TouchableOpacity

@@ -22,8 +22,8 @@ import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
 // ============================================================
 
 const T = {
-  crimson: '#8B0000',
-  crimsonLight: '#A61B1B',
+  crimson: '#D0112B',
+  crimsonLight: '#A20D23',
   ink: '#0B0B0D',
   inkSoft: '#3F3F46',
   inkMuted: '#71717A',

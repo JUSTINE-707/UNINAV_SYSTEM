@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "UniNav",
-    "slug": "UniNav",
+    "name": "ClassSync",
+    "slug": "classsync",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,8 +9,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "UniNav uses your camera to scan classroom QR codes.",
-        "NSLocationWhenInUseUsageDescription": "UniNav uses your location to show where you are on the campus map."
+        "NSCameraUsageDescription": "ClassSync uses your camera to scan classroom QR codes.",
+        "NSLocationWhenInUseUsageDescription": "ClassSync uses your location to show where you are on the campus map."
       }
     },
     "android": {
@@ -34,15 +34,16 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow UniNav to access your camera to scan classroom QR codes."
+          "cameraPermission": "Allow ClassSync to access your camera to scan classroom QR codes."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow UniNav to use your location to show where you are on the campus map."
+          "locationWhenInUsePermission": "Allow ClassSync to use your location to show where you are on the campus map."
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

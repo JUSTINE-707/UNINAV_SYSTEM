@@ -260,7 +260,7 @@ const stateAccent = (state) => {
     case 'online': return '#3B82F6';
     case 'cancelled': return '#B00020';
     case 'ended': return '#9CA3AF';
-    case 'upcoming': return '#8B0000';
+    case 'upcoming': return '#D0112B';
     default: return '#9CA3AF';
   }
 };
@@ -559,7 +559,7 @@ const StudentDashboard = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#8B0000" />
+      <StatusBar barStyle="light-content" backgroundColor="#D0112B" />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -604,7 +604,7 @@ const StudentDashboard = ({ navigation }) => {
         </View>
 
         {/* ==================== SEMESTER PROGRESS ==================== */}
-        <SemesterProgressStrip accentColor="#8B0000" variant="light" />
+        <SemesterProgressStrip accentColor="#D0112B" variant="light" />
 
         {/* SUMMARY CARDS */}
         <View style={styles.summaryRow}>
@@ -824,7 +824,7 @@ const StudentDashboard = ({ navigation }) => {
               activeOpacity={0.75}
             >
               <View style={styles.quickIconWrap}>
-                <Feather name="map" size={20} color="#8B0000" />
+                <Feather name="map" size={20} color="#D0112B" />
               </View>
               <Text style={styles.quickLabel}>Campus Map</Text>
               <Text style={styles.quickSub}>Find rooms</Text>
@@ -836,7 +836,7 @@ const StudentDashboard = ({ navigation }) => {
               activeOpacity={0.75}
             >
               <View style={styles.quickIconWrap}>
-                <Feather name="users" size={20} color="#8B0000" />
+                <Feather name="users" size={20} color="#D0112B" />
               </View>
               <Text style={styles.quickLabel}>Officials</Text>
               <Text style={styles.quickSub}>Directory</Text>
@@ -1097,11 +1097,11 @@ const StudentDashboard = ({ navigation }) => {
 
             <View style={styles.logoutBadgeWrap}>
               <View style={styles.logoutBadge}>
-                <Feather name="log-out" size={28} color="#8B0000" />
+                <Feather name="log-out" size={28} color="#D0112B" />
               </View>
             </View>
 
-            <Text style={styles.logoutCardTitle}>Log out of UniNav?</Text>
+            <Text style={styles.logoutCardTitle}>Log out of ClassSync?</Text>
             <Text style={styles.logoutCardSubtitle}>
               You'll be signed out of your student account and will need to
               log in again to access your portal.
@@ -1165,7 +1165,7 @@ const StudentDashboard = ({ navigation }) => {
 
 const StudentDashboardSkeleton = () => (
   <View style={styles.container}>
-    <StatusBar barStyle="light-content" backgroundColor="#8B0000" />
+    <StatusBar barStyle="light-content" backgroundColor="#D0112B" />
 
     <View style={styles.scrollContent}>
       <View style={styles.header}>
@@ -1355,7 +1355,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 24,
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
     gap: 12,
   },
   headerEyebrow: {
@@ -1479,7 +1479,7 @@ const styles = StyleSheet.create({
   nextClassSubject: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#8B0000',
+    color: '#D0112B',
   },
   nextClassTitle: {
     fontSize: 15,
@@ -1553,7 +1553,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
     paddingVertical: 16,
     borderRadius: 14,
     marginTop: 14,
@@ -1627,7 +1627,7 @@ const styles = StyleSheet.create({
   sectionLink: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#8B0000',
+    color: '#D0112B',
     marginBottom: 12,
   },
 
@@ -1655,7 +1655,7 @@ const styles = StyleSheet.create({
   classSubject: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#8B0000',
+    color: '#D0112B',
     letterSpacing: 0.3,
   },
   classSubjectGhost: { color: '#6B7280' },
@@ -1770,7 +1770,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1.5,
-    color: '#8B0000',
+    color: '#D0112B',
     marginBottom: 4,
   },
   modalSubject: {
@@ -1918,13 +1918,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '48%',
     minWidth: 140,
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
     paddingVertical: 15,
     paddingHorizontal: 12,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#8B0000',
+    shadowColor: '#D0112B',
     shadowOpacity: 0.25,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -1994,13 +1994,13 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
   },
   logoutToneLabel: {
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1.8,
-    color: '#8B0000',
+    color: '#D0112B',
   },
 
   logoutBadgeWrap: {
@@ -2051,7 +2051,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2105,10 +2105,10 @@ const styles = StyleSheet.create({
     paddingLeft: 5,
     paddingRight: 14,
     borderRadius: 12,
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
     gap: 8,
     minHeight: 48,
-    shadowColor: '#8B0000',
+    shadowColor: '#D0112B',
     shadowOpacity: 0.28,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },

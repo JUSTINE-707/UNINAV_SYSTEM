@@ -1572,7 +1572,7 @@ const CampusMapScreen = ({
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#8B0000" />
+        <ActivityIndicator size="large" color="#D0112B" />
         <Text style={styles.loadingText}>Loading map…</Text>
       </View>
     )
@@ -1773,7 +1773,7 @@ const CampusMapScreen = ({
           disabled={refreshing}
         >
           {refreshing ? (
-            <ActivityIndicator size="small" color="#8B0000" />
+            <ActivityIndicator size="small" color="#D0112B" />
           ) : (
             <Text style={styles.refreshIcon}>⟳</Text>
           )}
@@ -1839,7 +1839,7 @@ const CampusMapScreen = ({
                         n.label === debugStartLabel
                           ? '#059669'
                           : n.label === debugEndLabel
-                          ? '#8B0000'
+                          ? '#D0112B'
                           : '#1E88E5'
                       }
                       opacity={0.5}
@@ -1891,7 +1891,7 @@ const CampusMapScreen = ({
                   <Polyline
                     points={currentRoutePoints}
                     fill="none"
-                    stroke="#8B0000"
+                    stroke="#D0112B"
                     strokeWidth={6 * RENDER_MULTIPLIER}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1920,7 +1920,7 @@ const CampusMapScreen = ({
                         key={`arrow-${idx}`}
                         points={tri}
                         fill="#FFFFFF"
-                        stroke="#8B0000"
+                        stroke="#D0112B"
                         strokeWidth={1.5 * RENDER_MULTIPLIER}
                         strokeLinejoin="round"
                       />
@@ -1938,7 +1938,7 @@ const CampusMapScreen = ({
                     cy={n.coord_y * RENDER_MULTIPLIER}
                     r={3 * RENDER_MULTIPLIER}
                     fill="#FFFFFF"
-                    stroke="#8B0000"
+                    stroke="#D0112B"
                     strokeWidth={1.5 * RENDER_MULTIPLIER}
                   />
                 ))}
@@ -1986,7 +1986,7 @@ const CampusMapScreen = ({
                         RENDER_MULTIPLIER
                       }
                       r={7 * RENDER_MULTIPLIER}
-                      fill="#8B0000"
+                      fill="#D0112B"
                       stroke="#FFFFFF"
                       strokeWidth={2.5 * RENDER_MULTIPLIER}
                     />
@@ -2001,7 +2001,7 @@ const CampusMapScreen = ({
                       }
                       r={13 * RENDER_MULTIPLIER}
                       fill="none"
-                      stroke="#8B0000"
+                      stroke="#D0112B"
                       strokeWidth={1.5 * RENDER_MULTIPLIER}
                       opacity={0.5}
                     />
@@ -2180,7 +2180,7 @@ const CampusMapScreen = ({
                 <View style={[styles.legendDot, { backgroundColor: '#059669' }]} />
                 <Text style={styles.legendLabel}>Start</Text>
                 <View
-                  style={[styles.legendDot, { backgroundColor: '#8B0000', marginLeft: 16 }]}
+                  style={[styles.legendDot, { backgroundColor: '#D0112B', marginLeft: 16 }]}
                 />
                 <Text style={styles.legendLabel}>Destination</Text>
                 <View
@@ -2287,18 +2287,18 @@ const styles = StyleSheet.create({
     borderBottomColor: '#ECECEC',
   },
   headerBack: { width: 70 },
-  headerBackText: { color: '#8B0000', fontWeight: '600', fontSize: 15 },
+  headerBackText: { color: '#D0112B', fontWeight: '600', fontSize: 15 },
   headerCenter: { flex: 1, alignItems: 'center' },
   headerEyebrow: {
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1.2,
-    color: '#8B0000',
+    color: '#D0112B',
     marginBottom: 2,
   },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
   headerReset: { width: 70, alignItems: 'flex-end' },
-  headerResetText: { color: '#8B0000', fontWeight: '600', fontSize: 14 },
+  headerResetText: { color: '#D0112B', fontWeight: '600', fontSize: 14 },
   headerResetTextActive: { color: '#059669' },
 
   debugPanel: {
@@ -2338,7 +2338,7 @@ const styles = StyleSheet.create({
   debugButtonRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   debugRunButton: {
     flex: 1,
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
@@ -2439,7 +2439,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     maxWidth: 160,
   },
-  floorBtnActive: { backgroundColor: '#8B0000' },
+  floorBtnActive: { backgroundColor: '#D0112B' },
   floorBtnText: {
     fontSize: 12,
     fontWeight: '800',
@@ -2473,7 +2473,7 @@ const styles = StyleSheet.create({
   },
   refreshIcon: {
     fontSize: 20,
-    color: '#8B0000',
+    color: '#D0112B',
     fontWeight: '800',
     lineHeight: 22,
     marginTop: -1,
@@ -2484,7 +2484,7 @@ const styles = StyleSheet.create({
     left: 16,
     right: 82,
     bottom: 90,
-    backgroundColor: '#8B0000',
+    backgroundColor: '#D0112B',
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -2492,7 +2492,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     zIndex: 22,
-    shadowColor: '#8B0000',
+    shadowColor: '#D0112B',
     shadowOpacity: 0.35,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
@@ -2534,7 +2534,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  clearPinText: { fontSize: 12, fontWeight: '700', color: '#8B0000' },
+  clearPinText: { fontSize: 12, fontWeight: '700', color: '#D0112B' },
   errorBanner: {
     position: 'absolute',
     top: 155,
@@ -2596,7 +2596,7 @@ const styles = StyleSheet.create({
   },
   mapControlCompass: {
     fontSize: 18,
-    color: '#8B0000',
+    color: '#D0112B',
     fontWeight: '900',
   },
 
@@ -2682,7 +2682,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepSheetIcon: { fontSize: 18, color: '#8B0000', fontWeight: '800' },
+  stepSheetIcon: { fontSize: 18, color: '#D0112B', fontWeight: '800' },
   stepSheetTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
   stepSheetSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   stepSheetCount: { fontSize: 11, color: '#9CA3AF', fontWeight: '700' },
@@ -2700,7 +2700,7 @@ const styles = StyleSheet.create({
   stepRowActive: { backgroundColor: '#FFF5F5' },
   stepRowIcon: {
     fontSize: 16,
-    color: '#8B0000',
+    color: '#D0112B',
     width: 24,
     textAlign: 'center',
   },

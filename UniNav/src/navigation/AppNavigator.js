@@ -14,6 +14,7 @@ import ReportGhostScreen from '../screens/professorSrc/ReportGhostScreen'
 import FacultyMapScreen from '../screens/professorSrc/FacultyMapScreen'
 import EndClassEarlyScreen from '../screens/professorSrc/EndClassEarlyScreen'
 import RoomStatusScreen from '../screens/professorSrc/RoomStatusScreen'
+import RoomAvailabilityScreen from '../screens/professorSrc/RoomAvailabilityScreen'
 import EnrollmentImportScreen from '../screens/professorSrc/EnrollmentImportScreen'
 import GuestMapScreen from '../screens/guests/Guestmapscreen'
 
@@ -35,6 +36,10 @@ const AppNavigator = () => {
         <Stack.Screen name="Map" component={FacultyMapScreen} />
         <Stack.Screen name="EndClassEarly" component={EndClassEarlyScreen} />
         <Stack.Screen name="RoomStatus" component={RoomStatusScreen} />
+        <Stack.Screen
+          name="RoomAvailability"
+          component={RoomAvailabilityScreen}
+        />
         <Stack.Screen name="EnrollmentImport" component={EnrollmentImportScreen} />
         <Stack.Screen name="GuestMap" component={GuestMapScreen} options={{ headerShown: false }} />
       </Stack.Navigator>

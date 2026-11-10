@@ -108,7 +108,7 @@ const LoginScreen = ({ navigation }) => {
   // Guests are not signed in. They can only view the campus map.
   const handleGuest = () => {
     setErrorMsg('')
-    navigation.navigate('Map', { isGuest: true })
+    navigation.navigate('GuestMap')
   }
 
   return (
@@ -134,7 +134,7 @@ const LoginScreen = ({ navigation }) => {
             ARASOF - Nasugbu
           </Text>
           <View style={styles.divider} />
-          <Text style={styles.appName}>UniNav</Text>
+          <Text style={styles.appName}>ClassSync</Text>
           <Text style={styles.appSubtitle}>
             Campus Navigation & Schedule System
           </Text>

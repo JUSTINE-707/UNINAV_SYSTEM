@@ -27,8 +27,8 @@ import {autoCloseStaleSessions} from '../../utils/sessionTimeout';
 // ============================================================
 
 const T = {
-  crimson: '#8B0000',
-  crimsonLight: '#A61B1B',
+  crimson: '#D0112B',
+  crimsonLight: '#A20D23',
   ink: '#0B0B0D',
   inkSoft: '#3F3F46',
   inkMuted: '#71717A',
@@ -1465,6 +1465,12 @@ const ProfessorDashboard = ({ navigation }) => {
               onPress={() => navigation.navigate('RoomStatus')}
             />
             <ToolCard
+              icon="clock"
+              label="Availability"
+              sub="Free rooms by hour"
+              onPress={() => navigation.navigate('RoomAvailability')}
+            />
+            <ToolCard
               icon="alert-triangle"
               label="Report Class"
               sub="Report a cancelled class"
@@ -1808,7 +1814,7 @@ const ProfessorDashboard = ({ navigation }) => {
               </View>
             </View>
 
-            <Text style={styles.logoutCardTitle}>Log out of UniNav?</Text>
+            <Text style={styles.logoutCardTitle}>Log out of ClassSync?</Text>
             <Text style={styles.logoutCardSubtitle}>
               You'll be signed out of your faculty account and will need to
               log in again to access your portal.

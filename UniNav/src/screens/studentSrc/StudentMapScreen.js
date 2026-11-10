@@ -545,7 +545,7 @@
 //   if (loading) {
 //     return (
 //       <View style={styles.center}>
-//         <ActivityIndicator size="large" color="#8B0000" />
+//         <ActivityIndicator size="large" color="#D0112B" />
 //         <Text style={styles.loadingText}>Loading map…</Text>
 //       </View>
 //     )
@@ -742,7 +742,7 @@
 //                     r={2 * RENDER_MULTIPLIER}
 //                     fill={
 //                       n.label === debugStartLabel ? '#059669' :
-//                       n.label === debugEndLabel ? '#8B0000' : '#1E88E5'
+//                       n.label === debugEndLabel ? '#D0112B' : '#1E88E5'
 //                     }
 //                     opacity={0.5}
 //                   />
@@ -799,7 +799,7 @@
 //                 <Polyline
 //                   points={currentFloorPath.map((n) => `${n.coord_x * RENDER_MULTIPLIER},${n.coord_y * RENDER_MULTIPLIER}`).join(' ')}
 //                   fill="none"
-//                   stroke="#8B0000"
+//                   stroke="#D0112B"
 //                   strokeWidth={3 * RENDER_MULTIPLIER}
 //                   strokeLinecap="round"
 //                   strokeLinejoin="round"
@@ -814,7 +814,7 @@
 //                   cy={n.coord_y * RENDER_MULTIPLIER}
 //                   r={2 * RENDER_MULTIPLIER}
 //                   fill="#FFFFFF"
-//                   stroke="#8B0000"
+//                   stroke="#D0112B"
 //                   strokeWidth={1 * RENDER_MULTIPLIER}
 //                 />
 //               ))}
@@ -836,7 +836,7 @@
 //                     cx={currentFloorPath[currentFloorPath.length - 1].coord_x * RENDER_MULTIPLIER}
 //                     cy={currentFloorPath[currentFloorPath.length - 1].coord_y * RENDER_MULTIPLIER}
 //                     r={5 * RENDER_MULTIPLIER}
-//                     fill="#8B0000"
+//                     fill="#D0112B"
 //                     stroke="#FFFFFF"
 //                     strokeWidth={1.5 * RENDER_MULTIPLIER}
 //                   />
@@ -845,7 +845,7 @@
 //                     cy={currentFloorPath[currentFloorPath.length - 1].coord_y * RENDER_MULTIPLIER}
 //                     r={9 * RENDER_MULTIPLIER}
 //                     fill="none"
-//                     stroke="#8B0000"
+//                     stroke="#D0112B"
 //                     strokeWidth={1 * RENDER_MULTIPLIER}
 //                     opacity="0.4"
 //                   />
@@ -880,7 +880,7 @@
 //             <View style={styles.legendRow}>
 //               <View style={[styles.legendDot, { backgroundColor: '#059669' }]} />
 //               <Text style={styles.legendLabel}>Start</Text>
-//               <View style={[styles.legendDot, { backgroundColor: '#8B0000', marginLeft: 16 }]} />
+//               <View style={[styles.legendDot, { backgroundColor: '#D0112B', marginLeft: 16 }]} />
 //               <Text style={styles.legendLabel}>Destination</Text>
 //               <View style={[styles.legendDot, { backgroundColor: '#F59E0B', marginLeft: 16 }]} />
 //               <Text style={styles.legendLabel}>Pinned</Text>
@@ -965,7 +965,7 @@
 //                         <View style={[styles.routeDot, { backgroundColor: '#059669' }]} />
 //                         <Text style={styles.routeCardEndpoint} numberOfLines={1}>{p[0]?.label || 'Start'}</Text>
 //                         <Text style={styles.routeCardArrow}>→</Text>
-//                         <View style={[styles.routeDot, { backgroundColor: '#8B0000' }]} />
+//                         <View style={[styles.routeDot, { backgroundColor: '#D0112B' }]} />
 //                         <Text style={styles.routeCardEndpoint} numberOfLines={1}>{p[p.length - 1]?.label || 'End'}</Text>
 //                       </View>
 //                     </View>
@@ -994,12 +994,12 @@
 //   loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
 //   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 54, paddingBottom: 12, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
 //   headerBack: { width: 70 },
-//   headerBackText: { color: '#8B0000', fontWeight: '600', fontSize: 15 },
+//   headerBackText: { color: '#D0112B', fontWeight: '600', fontSize: 15 },
 //   headerCenter: { flex: 1, alignItems: 'center' },
-//   headerEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2, color: '#8B0000', marginBottom: 2 },
+//   headerEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2, color: '#D0112B', marginBottom: 2 },
 //   headerTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
 //   headerReset: { width: 70, alignItems: 'flex-end' },
-//   headerResetText: { color: '#8B0000', fontWeight: '600', fontSize: 14 },
+//   headerResetText: { color: '#D0112B', fontWeight: '600', fontSize: 14 },
 //   headerResetTextActive: { color: '#059669' },
 //   debugPanel: { backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#ECECEC', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 },
 //   debugTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: '#059669', marginBottom: 10 },
@@ -1008,7 +1008,7 @@
 //   debugRowValue: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
 //   debugRowPlaceholder: { color: '#9CA3AF', fontStyle: 'italic', fontWeight: '500' },
 //   debugButtonRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
-//   debugRunButton: { flex: 1, backgroundColor: '#8B0000', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+//   debugRunButton: { flex: 1, backgroundColor: '#D0112B', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
 //   debugRunText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 //   debugClearButton: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#FFFFFF', alignItems: 'center' },
 //   debugClearText: { color: '#1A1A1A', fontWeight: '600', fontSize: 14 },
@@ -1042,18 +1042,18 @@
 //   mapArea: { flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: '#F5F5F7' },
 //   floorSwitcher: { position: 'absolute', top: 10, flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 20, padding: 4, zIndex: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
 //   floorBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16 },
-//   floorBtnActive: { backgroundColor: '#8B0000' },
+//   floorBtnActive: { backgroundColor: '#D0112B' },
 //   floorBtnText: { fontSize: 12, fontWeight: '700', color: '#6B7280' },
 //   floorBtnTextActive: { color: '#FFFFFF' },
 //   clearPinFab: { position: 'absolute', top: 60, right: 16, backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, zIndex: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
-//   clearPinText: { fontSize: 12, fontWeight: '700', color: '#8B0000' },
+//   clearPinText: { fontSize: 12, fontWeight: '700', color: '#D0112B' },
 //   errorBanner: { position: 'absolute', top: 100, left: 16, right: 16, padding: 10, backgroundColor: '#FFF4D6', borderRadius: 8, borderWidth: 1, borderColor: '#F0D58C', zIndex: 5 },
 //   errorBannerText: { color: '#7A5200', fontSize: 12, fontWeight: '600' },
 //   noImageBox: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ECECEC', borderRadius: 12 },
 //   noImageText: { color: '#9CA3AF', fontSize: 13, fontWeight: '500' },
 //   directionsFab: { position: 'absolute', right: 20, bottom: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E88E5', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 28, gap: 8, shadowColor: '#1E88E5', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6, zIndex: 20 },
 //   directionsFabText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 0.3 },
-//   routesFab: { position: 'absolute', right: 20, bottom: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: '#8B0000', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 24, gap: 8, shadowColor: '#8B0000', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6, zIndex: 20 },
+//   routesFab: { position: 'absolute', right: 20, bottom: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: '#D0112B', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 24, gap: 8, shadowColor: '#D0112B', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6, zIndex: 20 },
 //   routesFabIcon: { color: '#FFFFFF', fontSize: 18, fontWeight: '800', marginTop: -2 },
 //   routesFabText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.3 },
 //   footer: { paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#ECECEC' },
@@ -1081,20 +1081,20 @@
 //   routesSubtitle: { fontSize: 13, color: '#6B7280', marginTop: 2 },
 //   routesList: { paddingHorizontal: 16, marginTop: 4 },
 //   routeCardItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: '#ECECEC', backgroundColor: '#FFFFFF', marginBottom: 10, gap: 14 },
-//   routeCardItemActive: { borderColor: '#8B0000', backgroundColor: '#FFF5F5' },
+//   routeCardItemActive: { borderColor: '#D0112B', backgroundColor: '#FFF5F5' },
 //   routeCardNumber: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F5F5F7', alignItems: 'center', justifyContent: 'center' },
-//   routeCardNumberActive: { backgroundColor: '#8B0000' },
+//   routeCardNumberActive: { backgroundColor: '#D0112B' },
 //   routeCardNumberText: { fontSize: 15, fontWeight: '800', color: '#6B7280' },
 //   routeCardNumberTextActive: { color: '#FFFFFF' },
 //   routeCardTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
-//   routeCardTitleActive: { color: '#8B0000' },
+//   routeCardTitleActive: { color: '#D0112B' },
 //   routeCardMeta: { fontSize: 12, color: '#6B7280', marginBottom: 6 },
 //   routeCardMetaActive: { color: '#B91C1C' },
 //   routeCardStartEnd: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 //   routeDot: { width: 7, height: 7, borderRadius: 3.5 },
 //   routeCardEndpoint: { fontSize: 11, color: '#9CA3AF', fontWeight: '600', flexShrink: 1 },
 //   routeCardArrow: { fontSize: 11, color: '#D1D5DB', marginHorizontal: 2 },
-//   routeCardCheck: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#8B0000', alignItems: 'center', justifyContent: 'center' },
+//   routeCardCheck: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#D0112B', alignItems: 'center', justifyContent: 'center' },
 //   routeCardCheckText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
 //   routesDoneButton: { marginTop: 6, marginHorizontal: 20, paddingVertical: 14, borderRadius: 12, backgroundColor: '#F5F5F7', alignItems: 'center' },
 //   routesDoneText: { color: '#1A1A1A', fontSize: 15, fontWeight: '700' },

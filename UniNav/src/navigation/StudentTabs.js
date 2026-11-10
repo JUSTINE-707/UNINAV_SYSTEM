@@ -1,5 +1,5 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import { View, StyleSheet } from 'react-native'
+import { Platform, View, StyleSheet } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 
 import StudentDashboard from '../screens/studentSrc/studentDashboard'
@@ -17,7 +17,7 @@ const Tab = createBottomTabNavigator()
 // than emoji at the same size, so 22 reads as visually equal.
 const ICON_SIZE = 22
 
-const ACTIVE = '#8B0000'
+const ACTIVE = '#D0112B'
 const INACTIVE = '#9CA3AF'
 
 const TabIcon = ({ name, focused }) => (
@@ -40,17 +40,18 @@ const StudentTabs = () => {
         tabBarActiveTintColor: ACTIVE,
         tabBarInactiveTintColor: INACTIVE,
         tabBarStyle: {
-          height: 64,
+          height: Platform.OS === 'web' ? 72 : 64,
           paddingBottom: 8,
-          paddingTop: 8,
+          paddingTop: Platform.OS === 'web' ? 6 : 8,
           borderTopWidth: 1,
           borderTopColor: '#ECECEC',
           backgroundColor: '#FFFFFF',
         },
         tabBarLabelStyle: {
           fontSize: 11,
+          lineHeight: 14,
           fontWeight: '700',
-          marginTop: 2,
+          marginTop: 1,
         },
       }}
     >

@@ -18,7 +18,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useSemester } from '../../context/SemesterContext'
 
 const COLORS = {
-  primary: '#8B0000',
+  primary: '#D0112B',
   ink: '#18181B',
   muted: '#71717A',
   white: '#FFFFFF',

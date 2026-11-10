@@ -29,8 +29,8 @@ import {
 // ============================================================
 
 const T = {
-  crimson: '#8B0000',
-  crimsonLight: '#A61B1B',
+  crimson: '#D0112B',
+  crimsonLight: '#A20D23',
   ink: '#0B0B0D',
   inkSoft: '#3F3F46',
   inkMuted: '#71717A',
@@ -350,7 +350,7 @@ const RoomStatusScreen = () => {
             </head>
             <body>
               <h1>Room ${roomName}</h1>
-              <p>Scan with the UniNav professor app to verify this classroom.</p>
+              <p>Scan with the ClassSync professor app to verify this classroom.</p>
               <img src="${qrImage}" alt="QR code for room ${roomName}">
             </body>
           </html>

@@ -12,7 +12,7 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../services/supabase'
 
 const COLORS = {
-  primary: '#8B0000',
+  primary: '#D0112B',
   white: '#FFFFFF',
   black: '#1C1C1E',
   gray: '#9A9A9E',
@@ -475,7 +475,7 @@ const RegisterScreen = ({ navigation }) => {
     >
       <View style={styles.formContainer}>
         <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Register your UniNav account</Text>
+        <Text style={styles.subtitle}>Register your ClassSync account</Text>
 
         {/* ERROR / WARNING BOX */}
         {failure ? (
