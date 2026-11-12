@@ -475,7 +475,7 @@ const RegisterScreen = ({ navigation }) => {
     >
       <View style={styles.formContainer}>
         <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Register your ClassSync account</Text>
+        <Text style={styles.subtitle}>Register your ClasSync account</Text>
 
         {/* ERROR / WARNING BOX */}
         {failure ? (

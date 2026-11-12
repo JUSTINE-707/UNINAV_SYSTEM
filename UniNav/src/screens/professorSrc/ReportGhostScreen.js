@@ -18,6 +18,7 @@ import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useSemester } from '../../context/SemesterContext';
 import Skeleton, { SkeletonCircle } from '../../components/Skeleton';
+import { isOnlineRoom } from '../../utils/scheduleHelpers';
 
 // ============================================================
 // DESIGN TOKENS
@@ -82,11 +83,11 @@ const CAUSES = [
 ];
 
 const PROFESSOR_REASONS = [
-  { code: 'official_duty', label: 'Official duty', hint: 'Meeting, seminar, training, or official university assignment.', isExcused: true, excusedReason: 'Official Duty', icon: '🏛️' },
-  { code: 'medical', label: 'Medical / Sick leave', hint: 'You were sick or on approved medical leave.', isExcused: true, excusedReason: 'Medical', icon: '🏥' },
-  { code: 'emergency', label: 'Personal emergency', hint: 'Family emergency, accident, or urgent personal matter.', isExcused: true, excusedReason: 'Emergency', icon: '🚨' },
-  { code: 'personal', label: 'Personal matter', hint: 'A non-emergency personal commitment.', isExcused: false, excusedReason: 'Personal', icon: '👤' },
-  { code: 'other_prof', label: 'Other reason', hint: 'Describe the situation in the notes below.', isExcused: false, excusedReason: 'Other', icon: '⋯' },
+  { code: 'official_duty', label: 'Official duty', hint: 'Meeting, seminar, training, or official university assignment.', icon: '🏛️' },
+  { code: 'medical', label: 'Medical / Sick leave', hint: 'You were sick or on approved medical leave.', icon: '🏥' },
+  { code: 'emergency', label: 'Personal emergency', hint: 'Family emergency, accident, or urgent personal matter.', icon: '🚨' },
+  { code: 'personal', label: 'Personal matter', hint: 'A non-emergency personal commitment.', icon: '👤' },
+  { code: 'other_prof', label: 'Other reason', hint: 'Describe the situation in the notes below.', icon: '⋯' },
 ];
 
 const formatTime = (time) => {
@@ -338,20 +339,10 @@ const ReportGhostScreen = () => {
     setSubmitting(true);
 
     try {
-      let reasonText = cause;
-      let isExcused = null;
-      let excusedReason = null;
+      const reasonText = cause === 'professor' ? profReason : cause;
 
-      if (cause === 'professor' && profReason) {
-        const selected = PROFESSOR_REASONS.find((r) => r.code === profReason);
-        if (selected) {
-          reasonText = selected.code;
-          isExcused = selected.isExcused;
-          excusedReason = selected.excusedReason;
-        }
-      }
-
-      const isPhysicalRoom = !!selectedClass.room_name;
+      const isPhysicalRoom =
+        !!selectedClass.room_name && !isOnlineRoom(selectedClass.room_name);
 
       const { error } = await supabase.from('ghost_reports').insert({
         schedule_id: selectedClass.id,
@@ -359,8 +350,8 @@ const ReportGhostScreen = () => {
         reason: reasonText,
         notes: notes.trim() || null,
         cause,
-        is_excused: isExcused,
-        excused_reason: excusedReason,
+        is_excused: null,
+        excused_reason: null,
         report_date: targetDateStr,
         room_released: isPhysicalRoom ? releaseRoom : false,
       });
@@ -388,10 +379,6 @@ const ReportGhostScreen = () => {
   // ============================================================
 
   if (submitted) {
-    const isExcused =
-      cause === 'professor' &&
-      PROFESSOR_REASONS.find((r) => r.code === profReason)?.isExcused;
-
     const dayLabel =
       dayOffset === -1 ? 'Yesterday' :
       dayOffset === 1  ? 'Tomorrow'  :
@@ -430,39 +417,9 @@ const ReportGhostScreen = () => {
 
           <Text style={styles.successTitle}>Report submitted</Text>
           <Text style={styles.successSubtitle}>
-            Your report has been sent to your Program Chair and Admin.
+            Your report has been sent to your Program Chair, who will review
+            the reason and decide whether it should be marked as excused.
           </Text>
-
-          {cause === 'professor' && (
-            <View
-              style={[
-                styles.statusBanner,
-                isExcused
-                  ? {
-                      backgroundColor: T.greenSoft,
-                      borderLeftColor: T.green,
-                    }
-                  : {
-                      backgroundColor: T.amberSoft,
-                      borderLeftColor: T.amber,
-                    },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.statusBannerText,
-                  { color: isExcused ? T.green : T.amber },
-                ]}
-              >
-                {isExcused ? 'MARKED AS EXCUSED' : 'MARKED AS UNEXCUSED'}
-              </Text>
-              <Text style={styles.statusBannerHint}>
-                {isExcused
-                  ? 'Your absence has been classified as legitimate.'
-                  : 'This will be reviewed by your Program Chair.'}
-              </Text>
-            </View>
-          )}
 
           {releaseRoom && selectedClass?.room_name && (
             <View style={styles.releaseBanner}>
@@ -583,7 +540,8 @@ const ReportGhostScreen = () => {
 
   const showSecondStep = cause === 'professor';
   const hasClasses = todayClasses.length > 0;
-  const canReleaseRoom = !!selectedClass?.room_name;
+  const canReleaseRoom =
+    !!selectedClass?.room_name && !isOnlineRoom(selectedClass.room_name);
 
   const emptyMessage =
     dayOffset === -1
@@ -831,9 +789,8 @@ const ReportGhostScreen = () => {
                     Why we ask for the reason
                   </Text>
                   <Text style={styles.infoBannerText}>
-                    Reports are reviewed by your Program Chair. Legitimate
-                    absences (meetings, medical, emergency) are marked as
-                    "excused" so your record stays accurate.
+                    Your Program Chair reviews the reason and decides whether
+                    the cancellation should be marked as excused.
                   </Text>
                 </View>
               </View>
@@ -916,7 +873,7 @@ const ReportGhostScreen = () => {
                     Why couldn't you attend?
                   </Text>
                   <Text style={styles.sectionSubtitle}>
-                    This determines whether your absence is marked as excused.
+                    This helps your Program Chair review your report.
                   </Text>
 
                   <View style={styles.reasonList}>
@@ -944,37 +901,14 @@ const ReportGhostScreen = () => {
                           </View>
 
                           <View style={{ flex: 1 }}>
-                            <View style={styles.reasonTitleRow}>
-                              <Text
-                                style={[
-                                  styles.reasonLabel,
-                                  isSelected && styles.reasonLabelSelected,
-                                ]}
-                              >
-                                {item.label}
-                              </Text>
-                              <View
-                                style={[
-                                  styles.excuseTag,
-                                  item.isExcused
-                                    ? { backgroundColor: T.greenSoft }
-                                    : { backgroundColor: T.amberSoft },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.excuseTagText,
-                                    {
-                                      color: item.isExcused
-                                        ? T.green
-                                        : T.amber,
-                                    },
-                                  ]}
-                                >
-                                  {item.isExcused ? 'EXCUSED' : 'UNEXCUSED'}
-                                </Text>
-                              </View>
-                            </View>
+                            <Text
+                              style={[
+                                styles.reasonLabel,
+                                isSelected && styles.reasonLabelSelected,
+                              ]}
+                            >
+                              {item.label}
+                            </Text>
                             <Text style={styles.reasonHint}>{item.hint}</Text>
                           </View>
 
@@ -1087,14 +1021,6 @@ const ReportGhostScreen = () => {
                 </View>
               )}
 
-              {!canReleaseRoom && selectedClass && (
-                <View style={styles.releaseNotApplicable}>
-                  <Text style={styles.releaseNotApplicableText}>
-                    This is an online class — no physical room to release.
-                  </Text>
-                </View>
-              )}
-
               {/* ==================== SUBMIT ==================== */}
               <TouchableOpacity
                 style={[
@@ -1118,8 +1044,8 @@ const ReportGhostScreen = () => {
               </TouchableOpacity>
 
               <Text style={styles.footerNote}>
-                Legitimate absences are protected. Only reports marked as
-                unexcused will be flagged for review by your Program Chair.
+                Your Program Chair will review the reason and decide whether
+                the cancellation is excused.
               </Text>
             </>
           )}
@@ -1626,13 +1552,6 @@ const styles = StyleSheet.create({
   reasonIconText: {
     fontSize: 18,
   },
-  reasonTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-    flexWrap: 'wrap',
-  },
   reasonLabel: {
     fontSize: 13,
     fontWeight: '900',
@@ -1645,16 +1564,6 @@ const styles = StyleSheet.create({
     color: T.inkMuted,
     lineHeight: 15,
     fontWeight: '500',
-  },
-  excuseTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  excuseTagText: {
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 0.8,
   },
 
   // ==================== RADIO ====================
@@ -1756,22 +1665,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
 
-  releaseNotApplicable: {
-    backgroundColor: T.surface,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: T.hair,
-  },
-  releaseNotApplicableText: {
-    fontSize: 11,
-    color: T.inkMuted,
-    fontStyle: 'italic',
-    fontWeight: '500',
-  },
-
   // ==================== SUBMIT ====================
   submitButton: {
     backgroundColor: T.crimson,
@@ -1861,26 +1754,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginBottom: 22,
     paddingHorizontal: 12,
-    fontWeight: '500',
-  },
-  statusBanner: {
-    width: '100%',
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 14,
-    borderLeftWidth: 4,
-  },
-  statusBannerText: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  statusBannerHint: {
-    fontSize: 11,
-    color: T.inkSoft,
-    opacity: 0.85,
-    lineHeight: 16,
     fontWeight: '500',
   },
   releaseBanner: {

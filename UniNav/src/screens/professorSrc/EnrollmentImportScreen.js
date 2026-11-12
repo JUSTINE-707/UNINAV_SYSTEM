@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -52,8 +53,15 @@ const EnrollmentImportScreen = ({ navigation }) => {
   const [studentsError, setStudentsError] = useState('')
   const [fileName, setFileName] = useState('')
   const [csvText, setCsvText] = useState('')
+  const [singleStudentSrCode, setSingleStudentSrCode] = useState('')
+  const [managingStudent, setManagingStudent] = useState(null)
+  const [moveTargetKey, setMoveTargetKey] = useState('')
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+  const [managementError, setManagementError] = useState('')
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
+  const [addingStudent, setAddingStudent] = useState(false)
+  const [updatingEnrollment, setUpdatingEnrollment] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [rowErrors, setRowErrors] = useState([])
@@ -114,6 +122,10 @@ const EnrollmentImportScreen = ({ navigation }) => {
         student.email?.toLowerCase().includes(query)
     )
   }, [enrolledStudents, searchQuery])
+  const moveTargets = useMemo(
+    () => classes.filter((item) => item.key !== selectedClass?.key),
+    [classes, selectedClass]
+  )
 
   const loadEnrolledStudents = async (classItem) => {
     if (!classItem || !semester?.id) return
@@ -191,6 +203,7 @@ const EnrollmentImportScreen = ({ navigation }) => {
         setSelectedKey('')
         setEnrolledStudents([])
         setStudentsError('')
+        setSingleStudentSrCode('')
         setError('')
         setMessage('')
         setRowErrors([])
@@ -357,14 +370,19 @@ const EnrollmentImportScreen = ({ navigation }) => {
         throw new Error(`CSV parsing failed: ${parsed.errors[0].message}`)
       }
 
-      const requiredHeaders = ['SR_CODE', 'SUBJECT_CODE', 'SECTION']
       const headers = parsed.meta.fields || []
-      const missingHeaders = requiredHeaders.filter(
-        (header) => !headers.includes(header)
-      )
-      if (missingHeaders.length) {
+      const courseCodeHeader = headers.includes('COURSE_CODE')
+        ? 'COURSE_CODE'
+        : headers.includes('SUBJECT_CODE')
+          ? 'SUBJECT_CODE'
+          : null
+      if (
+        !headers.includes('SR_CODE') ||
+        !courseCodeHeader ||
+        !headers.includes('SECTION')
+      ) {
         throw new Error(
-          `CSV must include these columns: ${requiredHeaders.join(', ')}.`
+          'CSV must include these columns: SR_CODE, COURSE_CODE, SECTION.'
         )
       }
       if (!parsed.data.length) throw new Error('The CSV contains no student rows.')
@@ -377,13 +395,13 @@ const EnrollmentImportScreen = ({ navigation }) => {
       parsed.data.forEach((row, index) => {
         const rowNumber = index + 2
         const srCode = (row.SR_CODE || '').trim()
-        const subject = (row.SUBJECT_CODE || '').trim()
+        const subject = (row[courseCodeHeader] || '').trim()
         const section = (row.SECTION || '').trim()
 
         if (!srCode || !subject || !section) {
           errors.push({
             row: rowNumber,
-            message: 'Missing SR_CODE, SUBJECT_CODE, or SECTION.',
+            message: 'Missing SR_CODE, COURSE_CODE, or SECTION.',
           })
           return
         }
@@ -508,6 +526,226 @@ const EnrollmentImportScreen = ({ navigation }) => {
     }
   }
 
+  const addSingleStudent = async () => {
+    const srCode = singleStudentSrCode.trim()
+    if (!selectedClass || !semester?.id) {
+      setError('Select one of your classes before adding a student.')
+      return
+    }
+    if (!srCode) {
+      setError('Enter the student’s SR code.')
+      return
+    }
+
+    setAddingStudent(true)
+    setError('')
+    setMessage('')
+    setRowErrors([])
+
+    try {
+      const { data: student, error: rosterError } = await supabase
+        .from('students_roster')
+        .select('id, sr_code')
+        .eq('sr_code', srCode)
+        .maybeSingle()
+
+      if (rosterError) throw rosterError
+      if (!student) {
+        throw new Error(`Student not found in the roster: ${srCode}.`)
+      }
+
+      const scheduleIds = selectedClass.meetings.map(({ id }) => id)
+      if (!scheduleIds.length) {
+        throw new Error('No class meetings were found for this section.')
+      }
+
+      const { data: existingEnrollments, error: enrollmentError } =
+        await supabase
+          .from('enrollments')
+          .select('schedule_id')
+          .eq('student_id', student.id)
+          .in('schedule_id', scheduleIds)
+
+      if (enrollmentError) throw enrollmentError
+
+      const enrolledScheduleIds = new Set(
+        (existingEnrollments || []).map(({ schedule_id }) => schedule_id)
+      )
+      const insertRows = scheduleIds
+        .filter((scheduleId) => !enrolledScheduleIds.has(scheduleId))
+        .map((scheduleId) => ({
+          student_id: student.id,
+          schedule_id: scheduleId,
+          semester_id: semester.id,
+        }))
+
+      if (!insertRows.length) {
+        setMessage(
+          `${srCode} is already enrolled in ${selectedClass.subject_code} - ${selectedClass.section}.`
+        )
+        return
+      }
+
+      const { error: insertError } = await supabase
+        .from('enrollments')
+        .insert(insertRows)
+      if (insertError) throw insertError
+
+      setMessage(
+        `Added ${srCode} to ${selectedClass.subject_code} - ${selectedClass.section}.`
+      )
+      setSingleStudentSrCode('')
+      await loadEnrolledStudents(selectedClass)
+    } catch (addError) {
+      console.error('Add single enrollment error:', addError)
+      setError(addError.message || 'Could not add this student.')
+    } finally {
+      setAddingStudent(false)
+    }
+  }
+
+  const openStudentManager = (student) => {
+    setManagingStudent(student)
+    setMoveTargetKey('')
+    setConfirmingRemoval(false)
+    setManagementError('')
+    setError('')
+    setMessage('')
+  }
+
+  const closeStudentManager = () => {
+    setManagingStudent(null)
+    setMoveTargetKey('')
+    setConfirmingRemoval(false)
+    setManagementError('')
+  }
+
+  const removeStudentFromSection = async () => {
+    if (!managingStudent || !selectedClass) return
+
+    setUpdatingEnrollment(true)
+    setManagementError('')
+    setMessage('')
+    try {
+      const scheduleIds = selectedClass.meetings.map(({ id }) => id)
+      if (!scheduleIds.length) {
+        throw new Error('No class meetings were found for this section.')
+      }
+      const { data: removedEnrollments, error: removeError } = await supabase
+        .from('enrollments')
+        .delete()
+        .eq('student_id', managingStudent.id)
+        .in('schedule_id', scheduleIds)
+        .select('schedule_id')
+
+      if (removeError) throw removeError
+      if (!removedEnrollments?.length) {
+        throw new Error(
+          'No enrollments were removed. Refresh the section and try again.'
+        )
+      }
+
+      setEnrolledStudents((students) =>
+        students.filter(({ id }) => id !== managingStudent.id)
+      )
+      setMessage(
+        `Removed ${managingStudent.sr_code || managingStudent.full_name} from ${selectedClass.subject_code} - ${selectedClass.section}.`
+      )
+      closeStudentManager()
+    } catch (removeError) {
+      console.error('Remove section enrollment error:', removeError)
+      setManagementError(removeError.message || 'Could not remove this student.')
+    } finally {
+      setUpdatingEnrollment(false)
+    }
+  }
+
+  const moveStudentToSection = async () => {
+    const targetClass = classes.find((item) => item.key === moveTargetKey)
+    if (!managingStudent || !selectedClass || !targetClass || !semester?.id) {
+      setManagementError('Choose a destination section before moving this student.')
+      return
+    }
+
+    setUpdatingEnrollment(true)
+    setManagementError('')
+    setMessage('')
+    let destinationAdded = false
+    let sourceRemovalStarted = false
+
+    try {
+      const sourceScheduleIds = selectedClass.meetings.map(({ id }) => id)
+      const targetScheduleIds = targetClass.meetings.map(({ id }) => id)
+      if (!targetScheduleIds.length) {
+        throw new Error('No class meetings were found for the destination section.')
+      }
+
+      const { data: existingTargetEnrollments, error: targetLookupError } =
+        await supabase
+          .from('enrollments')
+          .select('schedule_id')
+          .eq('student_id', managingStudent.id)
+          .in('schedule_id', targetScheduleIds)
+
+      if (targetLookupError) throw targetLookupError
+
+      const enrolledTargetIds = new Set(
+        (existingTargetEnrollments || []).map(({ schedule_id }) => schedule_id)
+      )
+      const targetRows = targetScheduleIds
+        .filter((scheduleId) => !enrolledTargetIds.has(scheduleId))
+        .map((scheduleId) => ({
+          student_id: managingStudent.id,
+          schedule_id: scheduleId,
+          semester_id: semester.id,
+        }))
+
+      if (targetRows.length) {
+        const { error: insertError } = await supabase
+          .from('enrollments')
+          .insert(targetRows)
+        if (insertError) throw insertError
+      }
+      destinationAdded = true
+
+      sourceRemovalStarted = true
+      const { data: removedEnrollments, error: removeError } = await supabase
+        .from('enrollments')
+        .delete()
+        .eq('student_id', managingStudent.id)
+        .in('schedule_id', sourceScheduleIds)
+        .select('schedule_id')
+
+      if (removeError) {
+        throw new Error(
+          `The student was enrolled in ${targetClass.subject_code} - ${targetClass.section}, but could not be removed from the current section. Please retry the move. ${removeError.message}`
+        )
+      }
+      if (!removedEnrollments?.length) {
+        throw new Error(
+          `The student was enrolled in ${targetClass.subject_code} - ${targetClass.section}, but no current-section enrollments were removed. Refresh and review both sections.`
+        )
+      }
+
+      setEnrolledStudents((students) =>
+        students.filter(({ id }) => id !== managingStudent.id)
+      )
+      setMessage(
+        `Moved ${managingStudent.sr_code || managingStudent.full_name} to ${targetClass.subject_code} - ${targetClass.section}.`
+      )
+      closeStudentManager()
+    } catch (moveError) {
+      console.error('Move section enrollment error:', moveError)
+      setManagementError(
+        destinationAdded && !sourceRemovalStarted
+          ? `The student may already be enrolled in the destination section. The current enrollment was not removed. ${moveError.message || 'Please review both sections.'}`
+          : moveError.message || 'Could not move this student.'
+      )
+    } finally {
+      setUpdatingEnrollment(false)
+    }
+  }
+
   const goBack = () => {
     setSearchQuery('')
     if (step === 'students') {
@@ -533,6 +771,7 @@ const EnrollmentImportScreen = ({ navigation }) => {
     setStudentsError('')
     setFileName('')
     setCsvText('')
+    setSingleStudentSrCode('')
     setError('')
     setMessage('')
     setRowErrors([])
@@ -822,6 +1061,61 @@ const EnrollmentImportScreen = ({ navigation }) => {
               )
             ) : (
               <>
+                <View style={styles.singleEnrollmentCard}>
+                  <View style={styles.importCardHeading}>
+                    <View style={styles.importIcon}>
+                      <Feather name="user-plus" size={19} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.cardDetails}>
+                      <Text style={styles.importTitle}>Add one student</Text>
+                      <Text style={styles.cardSubtitle}>
+                        Enter the student’s SR code to enroll them in this section.
+                      </Text>
+                    </View>
+                  </View>
+                  <TextInput
+                    accessibilityLabel="Student SR code"
+                    placeholder="Student SR code"
+                    placeholderTextColor={COLORS.subtle}
+                    value={singleStudentSrCode}
+                    onChangeText={setSingleStudentSrCode}
+                    style={styles.singleEnrollmentInput}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={addSingleStudent}
+                    editable={!addingStudent && !importing && !loadingStudents}
+                  />
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    onPress={addSingleStudent}
+                    disabled={
+                      !singleStudentSrCode.trim() ||
+                      addingStudent ||
+                      importing ||
+                      loadingStudents
+                    }
+                    activeOpacity={0.8}
+                    style={[
+                      styles.importButton,
+                      (!singleStudentSrCode.trim() ||
+                        addingStudent ||
+                        importing ||
+                        loadingStudents) &&
+                        styles.disabledButton,
+                    ]}
+                  >
+                    {addingStudent ? (
+                      <ActivityIndicator color={COLORS.white} />
+                    ) : (
+                      <>
+                        <Text style={styles.importButtonText}>Add student</Text>
+                        <Feather name="user-plus" size={17} color={COLORS.white} />
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
                 <View style={styles.importCard}>
                   <View style={styles.importCardHeading}>
                     <View style={styles.importIcon}>
@@ -830,18 +1124,19 @@ const EnrollmentImportScreen = ({ navigation }) => {
                     <View style={styles.cardDetails}>
                       <Text style={styles.importTitle}>Import student list</Text>
                       <Text style={styles.cardSubtitle}>
-                        CSV columns: SR_CODE, SUBJECT_CODE, SECTION
+                        CSV columns: SR_CODE, COURSE_CODE, SECTION
                       </Text>
                     </View>
                   </View>
                   <TouchableOpacity
                     accessibilityRole="button"
                     onPress={chooseFile}
-                    disabled={loadingStudents || importing}
+                    disabled={loadingStudents || importing || addingStudent}
                     activeOpacity={0.78}
                     style={[
                       styles.fileButton,
-                      (loadingStudents || importing) && styles.disabledButton,
+                      (loadingStudents || importing || addingStudent) &&
+                        styles.disabledButton,
                     ]}
                   >
                     <Feather
@@ -865,11 +1160,21 @@ const EnrollmentImportScreen = ({ navigation }) => {
                   <TouchableOpacity
                     accessibilityRole="button"
                     onPress={importCsv}
-                    disabled={!csvText || !selectedClass || importing || loadingStudents}
+                    disabled={
+                      !csvText ||
+                      !selectedClass ||
+                      importing ||
+                      loadingStudents ||
+                      addingStudent
+                    }
                     activeOpacity={0.8}
                     style={[
                       styles.importButton,
-                      (!csvText || !selectedClass || importing || loadingStudents) &&
+                      (!csvText ||
+                        !selectedClass ||
+                        importing ||
+                        loadingStudents ||
+                        addingStudent) &&
                         styles.disabledButton,
                     ]}
                   >
@@ -923,11 +1228,21 @@ const EnrollmentImportScreen = ({ navigation }) => {
                             {student.sr_code || 'No SR code'}
                           </Text>
                         </View>
-                        <Feather
-                          name="check-circle"
-                          size={17}
-                          color={COLORS.green}
-                        />
+                        <TouchableOpacity
+                          accessibilityRole="button"
+                          accessibilityLabel={`Edit enrollment for ${student.full_name || student.sr_code}`}
+                          onPress={() => openStudentManager(student)}
+                          style={styles.manageStudentButton}
+                        >
+                          <Feather
+                            name="edit-2"
+                            size={16}
+                            color={COLORS.primary}
+                          />
+                          <Text style={styles.manageStudentButtonText}>
+                            Manage
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     ))}
                   </View>
@@ -974,6 +1289,181 @@ const EnrollmentImportScreen = ({ navigation }) => {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        visible={!!managingStudent}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!updatingEnrollment) closeStudentManager()
+        }}
+      >
+        <View style={styles.manageModalRoot}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Close enrollment management"
+            activeOpacity={1}
+            disabled={updatingEnrollment}
+            onPress={closeStudentManager}
+            style={styles.manageModalBackdrop}
+          />
+          <View style={styles.manageModalCard}>
+            <View style={styles.manageModalHeader}>
+              <View style={styles.cardDetails}>
+                <Text style={styles.manageModalTitle}>
+                  {confirmingRemoval ? 'Remove student?' : 'Manage enrollment'}
+                </Text>
+                <Text style={styles.manageModalSubtitle}>
+                  {managingStudent?.full_name || 'Unnamed student'} ·{' '}
+                  {managingStudent?.sr_code || 'No SR code'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                disabled={updatingEnrollment}
+                onPress={closeStudentManager}
+                style={styles.manageModalClose}
+              >
+                <Feather name="x" size={20} color={COLORS.muted} />
+              </TouchableOpacity>
+            </View>
+
+            {confirmingRemoval ? (
+              <>
+                <Text style={styles.manageModalDescription}>
+                  This removes the student from all {selectedClass?.meetings.length || 0}{' '}
+                  class meetings in {selectedClass?.subject_code} -{' '}
+                  {selectedClass?.section}. Their student roster record will not be deleted.
+                </Text>
+                <View style={styles.manageModalActions}>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    disabled={updatingEnrollment}
+                    onPress={() => setConfirmingRemoval(false)}
+                    style={styles.manageSecondaryButton}
+                  >
+                    <Text style={styles.manageSecondaryButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    disabled={updatingEnrollment}
+                    onPress={removeStudentFromSection}
+                    style={[
+                      styles.manageDestructiveButton,
+                      updatingEnrollment && styles.disabledButton,
+                    ]}
+                  >
+                    {updatingEnrollment ? (
+                      <ActivityIndicator color={COLORS.white} />
+                    ) : (
+                      <Text style={styles.manageDestructiveButtonText}>
+                        Remove student
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.manageModalSectionTitle}>
+                  Move to another section
+                </Text>
+                <ScrollView
+                  style={styles.moveTargetList}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                >
+                  {moveTargets.map((targetClass) => {
+                    const isSelected = moveTargetKey === targetClass.key
+                    return (
+                      <TouchableOpacity
+                        key={targetClass.key}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
+                        disabled={updatingEnrollment}
+                        onPress={() => setMoveTargetKey(targetClass.key)}
+                        style={[
+                          styles.moveTargetCard,
+                          isSelected && styles.moveTargetCardSelected,
+                        ]}
+                      >
+                        <View style={styles.cardDetails}>
+                          <Text style={styles.moveTargetCourse}>
+                            {targetClass.subject_code} · {targetClass.section}
+                          </Text>
+                          {!!targetClass.course_title && (
+                            <Text style={styles.cardSubtitle} numberOfLines={1}>
+                              {targetClass.course_title}
+                            </Text>
+                          )}
+                          <Text style={styles.moveTargetMeetings}>
+                            {targetClass.meetings.length}{' '}
+                            {targetClass.meetings.length === 1
+                              ? 'class meeting'
+                              : 'class meetings'}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Feather
+                            name="check-circle"
+                            size={19}
+                            color={COLORS.primary}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    )
+                  })}
+                  {!moveTargets.length && (
+                    <Text style={styles.mutedText}>
+                      There are no other sections available in your classes.
+                    </Text>
+                  )}
+                </ScrollView>
+
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  disabled={!moveTargetKey || updatingEnrollment}
+                  onPress={moveStudentToSection}
+                  style={[
+                    styles.managePrimaryButton,
+                    (!moveTargetKey || updatingEnrollment) &&
+                      styles.disabledButton,
+                  ]}
+                >
+                  {updatingEnrollment ? (
+                    <ActivityIndicator color={COLORS.white} />
+                  ) : (
+                    <Text style={styles.managePrimaryButtonText}>
+                      Move student
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  disabled={updatingEnrollment}
+                  onPress={() => {
+                    setManagementError('')
+                    setConfirmingRemoval(true)
+                  }}
+                  style={styles.manageRemoveLink}
+                >
+                  <Feather name="user-minus" size={16} color={COLORS.red} />
+                  <Text style={styles.manageRemoveLinkText}>
+                    Remove from this section
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {!!managementError && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{managementError}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -1163,6 +1653,21 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F0F0F3',
   },
   studentCardLast: { borderBottomWidth: 0 },
+  manageStudentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginLeft: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    borderRadius: 9,
+    backgroundColor: COLORS.crimsonSoft,
+  },
+  manageStudentButtonText: {
+    color: COLORS.primary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   studentAvatar: {
     width: 40,
     height: 40,
@@ -1182,6 +1687,23 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 18,
+  },
+  singleEnrollmentCard: {
+    backgroundColor: COLORS.white,
+    borderColor: '#ECECF0',
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+  },
+  singleEnrollmentInput: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: '#E9E9EE',
+    borderRadius: 12,
+    paddingHorizontal: 13,
+    color: COLORS.ink,
+    fontSize: 14,
   },
   importCardHeading: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   importIcon: {
@@ -1290,6 +1812,127 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   messageText: { color: COLORS.green, fontSize: 13, lineHeight: 19 },
+  manageModalRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  manageModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(24, 24, 27, 0.48)',
+  },
+  manageModalCard: {
+    width: '100%',
+    maxWidth: 460,
+    maxHeight: '85%',
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  manageModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 18,
+  },
+  manageModalTitle: { color: COLORS.ink, fontSize: 19, fontWeight: '800' },
+  manageModalSubtitle: { color: COLORS.muted, fontSize: 13, marginTop: 4 },
+  manageModalClose: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: '#F5F5F7',
+    marginLeft: 10,
+  },
+  manageModalDescription: {
+    color: COLORS.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  manageModalSectionTitle: {
+    color: COLORS.ink,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  moveTargetList: { maxHeight: 300 },
+  moveTargetCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ECECF0',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  moveTargetCardSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.crimsonSoft,
+  },
+  moveTargetCourse: { color: COLORS.ink, fontSize: 14, fontWeight: '700' },
+  moveTargetMeetings: { color: COLORS.muted, fontSize: 11, marginTop: 4 },
+  managePrimaryButton: {
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  managePrimaryButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  manageRemoveLink: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 8,
+  },
+  manageRemoveLinkText: {
+    color: COLORS.red,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  manageModalActions: { flexDirection: 'row', gap: 10 },
+  manageSecondaryButton: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#ECECF0',
+    borderRadius: 12,
+  },
+  manageSecondaryButtonText: {
+    color: COLORS.ink,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  manageDestructiveButton: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.red,
+    borderRadius: 12,
+  },
+  manageDestructiveButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '800',
+  },
   rowErrors: {
     backgroundColor: COLORS.white,
     borderRadius: 12,

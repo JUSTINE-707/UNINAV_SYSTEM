@@ -134,7 +134,7 @@ const LoginScreen = ({ navigation }) => {
             ARASOF - Nasugbu
           </Text>
           <View style={styles.divider} />
-          <Text style={styles.appName}>ClassSync</Text>
+          <Text style={styles.appName}>ClasSync</Text>
           <Text style={styles.appSubtitle}>
             Campus Navigation & Schedule System
           </Text>

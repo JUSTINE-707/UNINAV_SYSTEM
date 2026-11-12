@@ -1,5 +1,5 @@
 export const COLORS = {
-  // ClassSync brand colors
+  // ClasSync brand colors
   primary: '#D0112B',
   primaryDark: '#A20D23',
   secondary: '#FFD700',

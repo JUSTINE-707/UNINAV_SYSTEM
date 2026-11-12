@@ -1814,7 +1814,7 @@ const ProfessorDashboard = ({ navigation }) => {
               </View>
             </View>
 
-            <Text style={styles.logoutCardTitle}>Log out of ClassSync?</Text>
+            <Text style={styles.logoutCardTitle}>Log out of ClasSync?</Text>
             <Text style={styles.logoutCardSubtitle}>
               You'll be signed out of your faculty account and will need to
               log in again to access your portal.

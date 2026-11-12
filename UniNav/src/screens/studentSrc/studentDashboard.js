@@ -514,6 +514,10 @@ const StudentDashboard = ({ navigation }) => {
     navigation.navigate('Officials');
   };
 
+  const openRoomStatus = () => {
+    navigation.navigate('StudentRoomStatus');
+  };
+
   const handleNavigate = (cls) => {
     if (!cls) return;
     if (isOnlineRoom(cls.room_name)) {
@@ -841,6 +845,18 @@ const StudentDashboard = ({ navigation }) => {
               <Text style={styles.quickLabel}>Officials</Text>
               <Text style={styles.quickSub}>Directory</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickCard}
+              onPress={openRoomStatus}
+              activeOpacity={0.75}
+            >
+              <View style={styles.quickIconWrap}>
+                <Feather name="activity" size={20} color="#D0112B" />
+              </View>
+              <Text style={styles.quickLabel}>Room Status</Text>
+              <Text style={styles.quickSub}>Live status & QR codes</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -1101,7 +1117,7 @@ const StudentDashboard = ({ navigation }) => {
               </View>
             </View>
 
-            <Text style={styles.logoutCardTitle}>Log out of ClassSync?</Text>
+            <Text style={styles.logoutCardTitle}>Log out of ClasSync?</Text>
             <Text style={styles.logoutCardSubtitle}>
               You'll be signed out of your student account and will need to
               log in again to access your portal.

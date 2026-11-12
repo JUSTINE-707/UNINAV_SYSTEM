@@ -350,7 +350,7 @@ const RoomStatusScreen = () => {
             </head>
             <body>
               <h1>Room ${roomName}</h1>
-              <p>Scan with the ClassSync professor app to verify this classroom.</p>
+              <p>Scan with the ClasSync professor app to verify this classroom.</p>
               <img src="${qrImage}" alt="QR code for room ${roomName}">
             </body>
           </html>

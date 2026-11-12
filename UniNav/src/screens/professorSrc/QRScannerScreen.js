@@ -209,8 +209,8 @@ const QRScannerScreen = () => {
         throw new ScanError(
           'UNKNOWN_QR',
           'QR code not recognized',
-          'This code does not match a classroom in ClassSync.',
-          'Check that you are scanning the ClassSync QR posted at the entrance, then try again.',
+          'This code does not match a classroom in ClasSync.',
+          'Check that you are scanning the ClasSync QR posted at the entrance, then try again.',
           'warning'
         );
       }
@@ -462,7 +462,7 @@ const QRScannerScreen = () => {
         <Text style={styles.permissionEyebrow}>CAMERA ACCESS</Text>
         <Text style={styles.permissionTitle}>Permission required</Text>
         <Text style={styles.permissionText}>
-          ClassSync needs camera access to scan the classroom QR code posted
+          ClasSync needs camera access to scan the classroom QR code posted
           on the door.
         </Text>
         <TouchableOpacity

@@ -72,7 +72,7 @@ const normalizeDayCode = (day) =>
   DAY_CODES_BY_NAME[String(day || '').trim().toLowerCase()] || null
 
 const isUnassignedRoom = (name) =>
-  UNASSIGNED_ROOM_NAMES.has(normalizeRoomKey(name))
+  UNASSIGNED_ROOM_NAMES.has(normalizeRoomKey(name).replace(/\*+$/, '').trim())
 
 const isNonScannableVenue = (name) =>
   NON_SCANNABLE_VENUE_PATTERN.test(String(name || '').trim())

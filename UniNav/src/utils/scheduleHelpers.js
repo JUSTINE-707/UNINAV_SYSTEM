@@ -44,6 +44,7 @@ export const isOnlineRoom = (roomName) => {
   return (
     n.includes('ONLINE') ||
     n.includes('ASYNCHRONOUS') ||
+    n.includes('GOOGLE CLASSROOM') ||
     n === 'ZOOM' ||
     n === 'GOOGLE MEET' ||
     n === 'GMEET'
